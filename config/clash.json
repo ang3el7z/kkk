@@ -1,6 +1,4 @@
 {
-    "mixed-port": 2080,
-    "allow-lan": true,
     "tcp-concurrent": true,
     "enable-process": true,
     "find-process-mode": "strict",
@@ -50,7 +48,6 @@
     },
     "dns": {
         "enable": true,
-        "listen": ":1053",
         "prefer-h3": false,
         "ipv6": false,
         "enhanced-mode": "fake-ip",
