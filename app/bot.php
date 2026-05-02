@@ -797,29 +797,11 @@ class Bot
         $c['log']['access'] = '/logs/xray';
         foreach ($c['inbounds'] as $v) {
             if ($v['tag'] == 'api') {
-                $inbound = true;
+                $api = true;
                 break;
             }
         }
-        if (empty($inbound)) {
-            $c['inbounds'][] = [
-                "port"     => 10808,
-                "protocol" => "socks",
-                "settings" => [
-                    "auth" => "noauth",
-                    "udp"  => true,
-                    "ip"   => "0.0.0.0"
-                ],
-                "tag"      => "wg-in",
-                "sniffing" => [
-                    "destOverride" => [
-                        "http",
-                        "tls",
-                        "quic"
-                    ],
-                    "enabled" => true
-                ]
-            ];
+        if (empty($api)) {
             $c['inbounds'][] = [
                 "listen"   => "127.0.0.1",
                 "port"     => 8080,
@@ -841,6 +823,33 @@ class Bot
                 "inboundTag"  => ["api"],
                 "outboundTag" => "api",
                 "type"        => "field"
+            ];
+        }
+
+        foreach ($c['inbounds'] as $v) {
+            if ($v['tag'] == 'wg-in') {
+                $wg = true;
+                break;
+            }
+        }
+        if (empty($wg)) {
+            $c['inbounds'][] = [
+                "port"     => 10808,
+                "protocol" => "socks",
+                "settings" => [
+                    "auth" => "noauth",
+                    "udp"  => true,
+                    "ip"   => "0.0.0.0"
+                ],
+                "tag"      => "wg-in",
+                "sniffing" => [
+                    "destOverride" => [
+                        "http",
+                        "tls",
+                        "quic"
+                    ],
+                    "enabled" => true
+                ]
             ];
         }
         $c['stats'] = new stdClass();
