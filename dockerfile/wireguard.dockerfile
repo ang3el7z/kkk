@@ -13,4 +13,9 @@ RUN apk add --no-cache --virtual .build-deps alpine-sdk git \
     && apk del .build-deps \
     && rm -rf /amneziawg-go \
     && rm -rf /amneziawg-tools \
-    && mkdir /root/.ssh
+    && mkdir /root/.ssh \
+    && cd /tmp \
+    && wget -O tun2socks.zip https://github.com/xjasonlyu/tun2socks/releases/download/v2.6.0/tun2socks-linux-amd64.zip \
+    && unzip tun2socks.zip \
+    && mv tun2socks-linux-amd64 /usr/bin/tun2socks \
+    && chmod +x /usr/bin/tun2socks

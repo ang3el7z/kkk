@@ -1,8 +1,6 @@
 <?php
 
-// ini_set('display_errors', 'On');
-// ini_set("log_errors", 1);
-// ini_set("error_log", '/logs/php_error');
+error_reporting(E_ALL | E_NOTICE);
 
 $debug = [
     'raw'  => file_get_contents('php://input'),

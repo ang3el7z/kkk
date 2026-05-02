@@ -1,3 +1,7 @@
+#!/bin/bash
+INTERFACE_VPN="tun0"
+TABLE_ID=100
+
 cat /ssh/key.pub > /root/.ssh/authorized_keys
 ssh-keygen -A
 exec /usr/sbin/sshd -D -e "$@" &
@@ -66,4 +70,15 @@ else
         sh /block_exchange.sh
     fi
 fi
+
+ip tuntap add mode tun dev $INTERFACE_VPN || true
+ip addr add 10.255.0.1/24 dev $INTERFACE_VPN || true
+ip link set up dev $INTERFACE_VPN
+ip rule add from $ADDRESS table $TABLE_ID || true
+ip route add default dev $INTERFACE_VPN table $TABLE_ID || true
+iptables -A FORWARD -i $INTERFACE_VPN -j ACCEPT
+iptables -A FORWARD -o $INTERFACE_VPN -j ACCEPT
+iptables -t nat -I POSTROUTING 1 -s $ADDRESS -j RETURN
+tun2socks -device $INTERFACE_VPN -proxy socks5://xr:10808 &
+
 tail -f /dev/null
