@@ -30,6 +30,7 @@ class Bot
     public $time2;
     public $time3;
     public $time_xray_stats;
+    public $admin;
 
     public function __construct($key, $i18n)
     {
@@ -64,6 +65,7 @@ class Bot
 
     public function input($data = false)
     {
+        $this->admin     = false;
         $this->input_raw = $input = $data ?: json_decode(file_get_contents('php://input'), true);
         $this->input     = [
             'message'           => $input['callback_query']['message']['text'] ?? $input['message']['text'] ?? $input['channel_post']['text'] ?? '',
@@ -89,16 +91,15 @@ class Bot
             'new_member_status' => $input['my_chat_member']['new_chat_member']['status'] ?? false,
         ];
         $this->auth();
-        $this->session();
-        $this->action();
+        if ($this->admin) {
+            $this->session();
+            $this->action();
+        }
         $this->callbackCheck();
     }
 
     public function auth()
     {
-        if (preg_match('~^/id$~', $this->input['message'])) {
-            return;
-        }
         $file = __DIR__ . '/config.php';
         require $file;
         if (empty($c['admin'])) {
@@ -107,9 +108,9 @@ class Bot
         } elseif (!is_array($c['admin'])) {
             $c['admin'] = [$c['admin']];
             file_put_contents($file, "<?php\n\n\$c = " . var_export($c, true) . ";\n");
-        } elseif (!in_array($this->input['from'], $c['admin'])) {
-            // $this->send($this->input['chat'], 'you are not authorized', $this->input['message_id']);
-            exit;
+        }
+        if (in_array($this->input['from'], $c['admin'])) {
+            $this->admin = true;
         }
     }
 
@@ -9999,13 +10000,15 @@ DNS-over-HTTPS with IP:
                     try {
                         $this->input($v);
                     } catch (Throwable $e) {
-                        var_dump('error:', $e);
+                        error_log($e);
                     } finally {
                         session_write_close();
                     }
                     $offset = max($offset, $v['update_id']);
                 }
                 $offset++;
+            } else {
+                sleep(1);
             }
         }
     }
@@ -10024,6 +10027,7 @@ DNS-over-HTTPS with IP:
                 ],
             ]
         ];
+        $this->request('setMyCommands', json_encode($data), 1);
     }
 
     public function send($chat, $text, ?int $to = 0, $button = false, $reply = false, $mode = 'HTML', $disable_notification = false)
