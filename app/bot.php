@@ -629,6 +629,21 @@ class Bot
             case preg_match('~^/routes(?: (\d+))?$~', $this->input['callback'], $m):
                 $this->routes($m[1] ?: 0);
                 break;
+            case preg_match('~^/tun$~', $this->input['callback'], $m):
+                $this->tun();
+                break;
+            case preg_match('~^/tunpackage(?: (\d+))?$~', $this->input['callback'], $m):
+                $this->tunpackage($m[1] ?: 0);
+                break;
+            case preg_match('~^/tunpackagemode$~', $this->input['callback'], $m):
+                $this->tunpackagemode();
+                break;
+            case preg_match('~^/tunprocessmode$~', $this->input['callback'], $m):
+                $this->tunprocessmode();
+                break;
+            case preg_match('~^/tunprocess(?: (\d+))?$~', $this->input['callback'], $m):
+                $this->tunprocess($m[1] ?: 0);
+                break;
             case preg_match('~^/xtlswarp(?: (\d+))?$~', $this->input['callback'], $m):
                 $this->xtlswarp($m[1] ?: 0);
                 break;
@@ -3118,6 +3133,12 @@ DNS-over-HTTPS with IP:
             case 'rulessetlist':
                 $this->xtlsrulesset($page);
                 break;
+            case 'tunprocess':
+                $this->tunprocess($page);
+                break;
+            case 'tunpackage':
+                $this->tunpackage($page);
+                break;
             case 'white':
             case 'deny':
                 $this->syncDeny();
@@ -4510,6 +4531,60 @@ DNS-over-HTTPS with IP:
                 to: $this->input['message_id'],
             );
         }
+    }
+
+    public function tunpackagemode()
+    {
+        $c = $this->getPacConf();
+        $c['tunpackagemode'] = $c['tunpackagemode'] ? 0 : 1;
+        $this->setPacConf($c);
+        $this->tun();
+    }
+
+    public function tunprocessmode()
+    {
+        $c = $this->getPacConf();
+        $c['tunprocessmode'] = $c['tunprocessmode'] ? 0 : 1;
+        $this->setPacConf($c);
+        $this->tun();
+    }
+
+    public function tunpackage($page = 0)
+    {
+        $text[] = "Menu -> " . $this->i18n('xray') . ' -> ' . $this->i18n('routes') . ' -> ' . $this->i18n('package');
+
+        [$data] = $this->listPac('tunpackage', $page, 'tunpackage');
+        $data[] = [
+            [
+                'text'          => $this->i18n('back'),
+                'callback_data' => "/tun",
+            ],
+        ];
+        $this->update(
+            $this->input['chat'],
+            $this->input['message_id'],
+            implode("\n", $text ?: ['...']),
+            $data ?: false,
+        );
+    }
+
+    public function tunprocess($page = 0)
+    {
+        $text[] = "Menu -> " . $this->i18n('xray') . ' -> ' . $this->i18n('routes') . ' -> ' . $this->i18n('process');
+
+        [$data] = $this->listPac('tunprocess', $page, 'tunprocess');
+        $data[] = [
+            [
+                'text'          => $this->i18n('back'),
+                'callback_data' => "/tun",
+            ],
+        ];
+        $this->update(
+            $this->input['chat'],
+            $this->input['message_id'],
+            implode("\n", $text ?: ['...']),
+            $data ?: false,
+        );
     }
 
     public function xtlsblock($page = 0)
@@ -7004,6 +7079,10 @@ DNS-over-HTTPS with IP:
                 'text'          => $this->i18n('routes'),
                 'callback_data' => "/routes",
             ],
+            [
+                'text'          => $this->i18n('tun lists'),
+                'callback_data' => "/tun",
+            ],
         ];
         $on = $off = 0;
         foreach ($c['inbounds'][0]['settings']['clients'] as $k => $v) {
@@ -7093,7 +7172,7 @@ DNS-over-HTTPS with IP:
         );
     }
 
-    public function routes($page = 0)
+    public function routes()
     {
         $text[] = "Menu -> " . $this->i18n('xray') . ' -> routes';
 
@@ -7126,6 +7205,48 @@ DNS-over-HTTPS with IP:
                 'text'          => $this->i18n('rulesset'),
                 'callback_data' => "/xtlsrulesset",
             ]],
+        ];
+        $data[] = [
+            [
+                'text'          => $this->i18n('back'),
+                'callback_data' => "/xray",
+            ],
+        ];
+        $this->update(
+            $this->input['chat'],
+            $this->input['message_id'],
+            implode("\n", $text ?: ['...']),
+            $data ?: false,
+        );
+    }
+
+    public function tun()
+    {
+        $text[] = "Menu -> " . $this->i18n('xray') . ' -> ' . $this->i18n('tun lists');
+
+        $c = $this->getPacConf();
+
+        $data = [
+            [
+                [
+                    'text'          => $this->i18n('package'),
+                    'callback_data' => "/tunpackage",
+                ],
+                [
+                    'text'          => 'mode: ' . $this->i18n(!empty($c['tunpackagemode']) ? 'exclude' : 'include'),
+                    'callback_data' => "/tunpackagemode",
+                ],
+            ],
+            [
+                [
+                    'text'          => $this->i18n('process'),
+                    'callback_data' => "/tunprocess",
+                ],
+                [
+                    'text'          => 'mode: ' . $this->i18n(!empty($c['tunprocessmode']) ? 'exclude' : 'include'),
+                    'callback_data' => "/tunprocessmode",
+                ],
+            ],
         ];
         $data[] = [
             [
@@ -8112,6 +8233,24 @@ DNS-over-HTTPS with IP:
                         $c['proxies'][$index]["skip-cert-verify"] = false;
                         $c['proxies'][$index]['servername']       = '~domain~';
                         break;
+                }
+                $tunpackage = array_filter($pac['tunpackage'] ?? []);
+                $tunprocess = array_filter($pac['tunprocess'] ?? []);
+                if (!empty($tunpackage) || !empty($tunprocess)) {
+                    if (!empty($tunpackage)) {
+                        if (!empty($pac['tunpackagemode'])) {
+                            $c['tun']['exclude-package'] = array_keys($tunpackage);
+                        } else {
+                            $c['tun']['include-package'] = array_keys($tunpackage);
+                        }
+                    }
+                    if (!empty($tunprocess)) {
+                        if (!empty($pac['tunprocessmode'])) {
+                            $c['tun']['exclude-process'] = array_keys($tunprocess);
+                        } else {
+                            $c['tun']['include-process'] = array_keys($tunprocess);
+                        }
+                    }
                 }
                 break;
         }
