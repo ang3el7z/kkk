@@ -1462,7 +1462,7 @@ class Bot
         ];
     }
 
-    public function importListFile($type)
+    public function importListFile($message = '', $type)
     {
         $r = $this->request('getFile', ['file_id' => $this->input['file_id']]);
         $f = file_get_contents($this->file . $r['result']['file_path']);
@@ -2424,7 +2424,7 @@ class Bot
             $this->delete($this->input['chat'], $this->input['reply']);
             $this->delete($this->input['chat'], $this->input['message_id']);
             $callback = $_SESSION['reply'][$this->input['reply']]['callback'];
-            $this->input['message_id']  = $this->input['callback_id'] = $_SESSION['reply'][$this->input['reply']]['start_message'];
+            $this->input['message_id'] = $this->input['callback_id'] = $_SESSION['reply'][$this->input['reply']]['start_message'];
             $this->{$callback}($this->input['message'], ...$_SESSION['reply'][$this->input['reply']]['args']);
             $this->answer($_SESSION['reply'][$this->input['reply']]['start_message']);
             unset($_SESSION['reply'][$this->input['reply']]);
