@@ -34,7 +34,7 @@ class Bot
 
     public function __construct($key, $i18n)
     {
-        $api = getenv('TELEGRAM_API');
+        $api = getenv('TELEGRAM_API') ?: 'api.telegram.org';
         $this->key      = $key;
         $this->api      = "https://$api/bot$key/";
         $this->file     = "https://$api/file/bot$key/";
@@ -3167,7 +3167,7 @@ DNS-over-HTTPS with IP:
                     'servers' => [
                         [
                             "address" => "10.10.0.13",
-                            "port"    => 4000,
+                            "port"    => 1080,
                         ],
                     ],
                 ],
@@ -5060,12 +5060,6 @@ DNS-over-HTTPS with IP:
         $c      = $this->getPacConf();
         $pubkey = file_get_contents('/config/dnstt/server.pub');
         $text[] = "dnstt";
-        $data[] = [
-            [
-                'text'          => $this->i18n('show in menu ') . $this->i18n($c['showdnstt'] ? 'on' : 'off'),
-                'callback_data' => "/showdnstt",
-            ],
-        ];
         if (!empty($c['dnsttDomain']) && !empty($c['dnsttPassword'])) {
             $text[] = "<pre>set the NS record for {$c['dnsttDomain']}: tns.{$c['domain']}\nset A record for tns.{$c['domain']}: {$this->ip}</pre>";
             $text[] = "account: <code>vpnbot:{$c['dnsttPassword']}</code>";
@@ -5254,8 +5248,8 @@ DNS-over-HTTPS with IP:
                                 'callback_data' => "/menu adguard",
                             ],
                             [
-                                'text'          => $this->i18n('warp'),
-                                'callback_data' => "/warp",
+                                'text'          => $this->i18n('Hysteria'),
+                                'callback_data' => "/menu hy",
                             ],
                         ],
                         [
@@ -5269,20 +5263,14 @@ DNS-over-HTTPS with IP:
                             ],
                         ],
                     ],
-                    [array_merge(
+                    [
                         [
-                            [
-                                'text'          => $this->i18n('Hysteria'),
-                                'callback_data' => "/menu hy",
-                            ],
-                        ],
-                        !empty($conf['showdnstt']) ? [
                             [
                                 'text'          => $this->i18n('DNSTT'),
                                 'callback_data' => "/dnstt",
                             ],
-                        ] : [],
-                    )],
+                        ],
+                    ],
                     [
                         [
                             [
@@ -7294,12 +7282,9 @@ DNS-over-HTTPS with IP:
 
     public function warpStatus()
     {
-        if (!empty($this->ssh('pgrep warp-svc', 'wp'))) {
-            $st = $this->ssh('curl -m 1 -x socks5://127.0.0.1:40000 https://cloudflare.com/cdn-cgi/trace', 'wp');
-            preg_match('~warp=(\w+)~', $st, $m);
-            return trim($m[1]) ?: 'off';
-        }
-        return 'off';
+        $st = $this->ssh('curl -m 1 -x socks5://wp:1080 https://cloudflare.com/cdn-cgi/trace', 'xr');
+        preg_match('~warp=(\w+)~', $st, $m);
+        return trim($m[1]) ?: 'off';
     }
 
     public function analyzeXray()
