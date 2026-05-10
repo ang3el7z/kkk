@@ -9873,19 +9873,26 @@ DNS-over-HTTPS with IP:
                 $s2 = random_int(15, 64);
             } while ($s1 + 56 === $s2);
 
-            // H1–H4: distinct 32-bit values (must not overlap)
+            // H1–H4: non-overlapping ranges in AWG 2.0 "MIN-MAX" format
+            // uint32 space split into 4 non-adjacent segments; shuffled for randomness
+            $range_width = random_int(5_000_000, 50_000_000);
+            $segments = [
+                [0x01000000, 0x3FFFFFFF],
+                [0x40000000, 0x6FFFFFFF],
+                [0x70000000, 0x9FFFFFFF],
+                [0xA0000000, 0xCFFFFFFF],
+            ];
+            shuffle($segments);
             $h = [];
-            while (count($h) < 4) {
-                $v = random_int(1, 4_294_967_295);
-                if (!in_array($v, $h)) {
-                    $h[] = $v;
-                }
+            foreach ($segments as [$seg_min, $seg_max]) {
+                $start = random_int($seg_min, $seg_max - $range_width);
+                $h[] = "$start-" . ($start + $range_width);
             }
 
             $c[$this->getInstanceWG(1) . 'amnezia_keys'] = [
                 'Jc'   => random_int(3, 10),
                 'Jmin' => 64,
-                'Jmax' => 1000,
+                'Jmax' => 1024,
                 'S1'   => $s1,
                 'S2'   => $s2,
                 'S3'   => random_int(0, 64),
@@ -9894,7 +9901,7 @@ DNS-over-HTTPS with IP:
                 'H2'   => $h[1],
                 'H3'   => $h[2],
                 'H4'   => $h[3],
-                'I1'   => '<b 0xc000000001><r 100>',
+                'I1'   => '<b 0xc000000001><r 1000>',
             ];
             $this->setPacConf($c);
         }
