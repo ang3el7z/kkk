@@ -38,7 +38,7 @@ up: # консоль сервиса
 ad: # консоль сервиса
 	docker compose exec ad /bin/sh
 wp: # консоль сервиса
-	docker compose exec wp bash
+	docker compose exec wp /bin/sh
 proxy: # консоль сервиса
 	docker compose exec proxy /bin/sh
 tg: # консоль сервиса

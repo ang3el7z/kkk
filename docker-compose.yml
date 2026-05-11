@@ -214,7 +214,7 @@ services:
             - dnstt
             - hy
     wg:
-        image: mercurykd/vpnbot-wg:1.3
+        image: mercurykd/vpnbot-wg:1.4
         build:
             dockerfile: dockerfile/wireguard.dockerfile
             args:
@@ -252,7 +252,7 @@ services:
                 ipv4_address: 10.10.0.4
         logging: *default-logging
     wg1:
-        image: mercurykd/vpnbot-wg:1.3
+        image: mercurykd/vpnbot-wg:1.4
         build:
             dockerfile: dockerfile/wireguard.dockerfile
             args:
@@ -449,18 +449,26 @@ services:
                 ipv4_address: 10.10.0.12
         logging: *default-logging
     wp:
-        image: dublok/cloudflare-warp:latest
+        image: mercurykd/vpnbot-wg:1.4
+        build:
+            dockerfile: dockerfile/wireguard.dockerfile
+            args:
+                image: ${IMAGE}
         cap_add:
             - NET_ADMIN
+        sysctls:
+            - net.ipv4.conf.all.src_valid_mark=1
         devices:
             - /dev/net/tun:/dev/net/tun
         volumes:
             - ./config/.profile:/root/.bashrc:ro
             - ./ssh:/ssh
             - ./config/sshd_config:/etc/ssh/sshd_config
-            - warp:/var/lib/cloudflare-warp
+            - ./scripts/start_wp.sh:/start_wp.sh
+            - warp:/etc/warp
         hostname: warp
         container_name: warp-${VER}
+        command: ["/bin/sh", "/start_wp.sh"]
         depends_on:
             php:
                 condition: service_healthy
