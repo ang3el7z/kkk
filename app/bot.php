@@ -9867,42 +9867,46 @@ DNS-over-HTTPS with IP:
     {
         $c = $this->getPacConf();
         if (empty($c[$this->getInstanceWG(1) . 'amnezia_keys'])) {
-            // S1 and S2: 0–64 bytes; constraint: S1 + 56 ≠ S2
+            // S1 and S2: 15–64 bytes; constraints: S1 + 56 ≠ S2 and S1 ≠ S2
             $s1 = random_int(15, 64);
             do {
                 $s2 = random_int(15, 64);
-            } while ($s1 + 56 === $s2);
+            } while ($s1 + 56 === $s2 || $s1 === $s2);
 
             // H1–H4: non-overlapping ranges in AWG 2.0 "MIN-MAX" format
-            // uint32 space split into 4 non-adjacent segments; shuffled for randomness
-            $range_width = random_int(5_000_000, 50_000_000);
+            // 4 strict quarters inside signed int32 space to support all platforms
             $segments = [
-                [0x01000000, 0x3FFFFFFF],
-                [0x40000000, 0x6FFFFFFF],
-                [0x70000000, 0x9FFFFFFF],
-                [0xA0000000, 0xCFFFFFFF],
+                [0x01000000, 0x1FFFFFFF],
+                [0x20000000, 0x3FFFFFFF],
+                [0x40000000, 0x5FFFFFFF],
+                [0x60000000, 0x7FFFFFFF],
             ];
             shuffle($segments);
+
             $h = [];
             foreach ($segments as [$seg_min, $seg_max]) {
+                // Unique range width per header increases entropy
+                $range_width = random_int(5_000_000, 50_000_000);
                 $start = random_int($seg_min, $seg_max - $range_width);
-                $h[] = "$start-" . ($start + $range_width);
+                $h[] = $start . '-' . ($start + $range_width);
             }
 
             $c[$this->getInstanceWG(1) . 'amnezia_keys'] = [
-                'Jc'   => random_int(3, 10),
-                'Jmin' => 64,
-                'Jmax' => 1024,
+                'Jc'   => random_int(3, 7), // 10 is sometimes overkill, 3-7 is ideal
+                'Jmin' => random_int(32, 64),
+                'Jmax' => random_int(512, 1024),
                 'S1'   => $s1,
                 'S2'   => $s2,
-                'S3'   => random_int(0, 64),
-                'S4'   => random_int(0, 32),
+                'S3'   => random_int(10, 64), // Avoid 0 to keep cookies obfuscated
+                'S4'   => random_int(3, 16),  // 3-16 bytes is enough for data, saves MTU/traffic
                 'H1'   => $h[0],
                 'H2'   => $h[1],
                 'H3'   => $h[2],
                 'H4'   => $h[3],
-                'I1'   => '<b 0xc000000001><r 1000>',
+                // Excellent custom signature (Yandex/Kinopoisk simulation)
+                'I1'   => '<b 0x084481800001000300000000077469636b65747306776964676574096b696e6f706f69736b0272750000010001c00c0005000100000039001806776964676574077469636b6574730679616e646578c025c0390005000100000039002b1765787465726e616c2d7469636b6574732d776964676574066166697368610679616e646578036e657400c05d000100010000001c000457fafe25>',
             ];
+
             $this->setPacConf($c);
         }
         return $c[$this->getInstanceWG(1) . 'amnezia_keys'];
