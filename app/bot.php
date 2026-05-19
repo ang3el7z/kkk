@@ -3486,7 +3486,12 @@ DNS-over-HTTPS with IP:
         $mtu     = $c[$this->getInstanceWG(1) . 'mtu'] ?? $this->mtu;
         $am      = $c[$this->getInstanceWG(1) . 'amnezia'] ?? false;
         $end     = $c[$this->getInstanceWG(1) . 'endpoint'] ?? false;
-        $data    = [
+
+        if (!empty($am)) {
+            $ak     = $this->amneziaKeys();
+            $text[] = '<code>' . implode("\n", array_map(fn($k, $v) => htmlspecialchars($k) . ': ' . htmlspecialchars($v), array_keys($ak), $ak)) . "</code>\n";
+        }
+        $data   = [
             [
                 [
                     'text'          => $this->i18n(!$bt ? 'on' : 'off') . " {$this->i18n('torrent')} ",
