@@ -14,33 +14,54 @@ done
 > $pwd/update/pipe
 echo "$$" > $pwd/update/update_pid
 
+tg_draft() {
+    local text="$1"
+    local escaped="${text//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    curl -s -H "Content-Type: application/json" \
+        -X POST "https://$TELEGRAM_API/bot$_key/sendMessageDraft" \
+        -d "{\"chat_id\":$_chat_id,\"draft_id\":1,\"text\":\"$escaped\"}" > /dev/null
+}
+
 while true
 do
     cmd=$(cat $pwd/update/pipe)
     branch=$(cat $pwd/update/branch 2>/dev/null)
     if [[ -n "$cmd" ]]
     then
-        key=$(cat $pwd/update/key)
-        curl -H "Content-Type: application/json" -X POST https://$TELEGRAM_API/bot$key/editMessageText -d "$(cat $pwd/update/curl | sed 's/"text":"~t~"/"text": "stopping the bot"/')"
+        _key=$(cat $pwd/update/key)
+        _curl_data=$(cat $pwd/update/curl)
+        _chat_id=$(echo "$_curl_data" | grep -o '"chat_id":[0-9-]*' | head -1 | cut -d: -f2)
+        _message_id=$(echo "$_curl_data" | grep -o '"message_id":[0-9]*' | head -1 | cut -d: -f2)
+
+        tg_draft "stopping the bot"
         docker compose down --remove-orphans
+
         if [[ "$cmd" == "1" ]]
         then
-            curl -H "Content-Type: application/json" -X POST https://$TELEGRAM_API/bot$key/editMessageText -d "$(cat $pwd/update/curl | sed 's/"text":"~t~"/"text": "clearing the directory"/')"
+            tg_draft "clearing the directory"
             git reset --hard && git clean -fd
-            curl -H "Content-Type: application/json" -X POST https://$TELEGRAM_API/bot$key/editMessageText -d "$(cat $pwd/update/curl | sed 's/"text":"~t~"/"text": "downloading the update"/')"
+            tg_draft "downloading the update"
             git fetch
             if [[ -n "$branch" ]]
             then
-                curl -H "Content-Type: application/json" -X POST https://$TELEGRAM_API/bot$key/editMessageText -d "$(cat $pwd/update/curl | sed 's/"text":"~t~"/"text": "changing branch"/')"
+                tg_draft "changing branch"
                 git checkout -t origin/$branch || git checkout $branch
             fi
-            curl -H "Content-Type: application/json" -X POST https://$TELEGRAM_API/bot$key/editMessageText -d "$(cat $pwd/update/curl | sed 's/"text":"~t~"/"text": "applying updates"/')"
+            tg_draft "applying updates"
             git pull > ./update/message
         fi
-        curl -H "Content-Type: application/json" -X POST https://$TELEGRAM_API/bot$key/editMessageText -d "$(cat $pwd/update/curl | sed 's/"text":"~t~"/"text": "launching the bot"/')"
+
+        tg_draft "launching the bot"
+        make start
+
         > $pwd/update/key
         > $pwd/update/curl
-        make start
+
+        curl -s -H "Content-Type: application/json" \
+            -X POST "https://$TELEGRAM_API/bot$_key/sendMessage" \
+            -d "{\"chat_id\":$_chat_id,\"text\":\"bot started\"}" > /dev/null
+
         bash $pwd/update/update.sh &
         exit 0
     fi

@@ -42,7 +42,7 @@ wp: # консоль сервиса
 proxy: # консоль сервиса
 	docker compose exec proxy /bin/sh
 tg: # консоль сервиса
-	docker compose exec tg /bin/sh
+	docker compose exec tg /bin/bash
 dnstt: # консоль сервиса
 	docker compose exec dnstt /bin/sh
 hy: # консоль сервиса

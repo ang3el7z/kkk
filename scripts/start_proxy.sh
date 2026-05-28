@@ -5,7 +5,7 @@ sed -n "s/\"server_port\": \([0-9]\+\),/\1/p" /config.json > current_port
 CURRENT_PORT=$(cat current_port | tr -d " ")
 if [ "$CURRENT_PORT" -ne "443" ]
 then
-    sed "s/\"server_port\": [0-9]\+/\"server_port\": $SSPORT/" /config.json > change_port
+    sed "s/\"server_port\": [0-9]\+/\"server_port\": 8388/" /config.json > change_port
     cat change_port > /config.json
 fi
 sslocal -v -d -c /config.json

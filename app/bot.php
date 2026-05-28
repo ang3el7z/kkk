@@ -31,6 +31,7 @@ class Bot
     public $time3;
     public $time_xray_stats;
     public $admin;
+    public $ports;
 
     public function __construct($key, $i18n)
     {
@@ -61,6 +62,13 @@ class Bot
             'GET /favicon.ico HTTP',
             preg_quote($this->getHashBot(1))
         ]) . '~';
+        $this->ports = [
+            'hy'  => '443/udp',
+            'wg'  => '51820/udp',
+            'wg1' => '51820/udp',
+            'ss'  => '8388',
+            'tg'  => '443',
+        ];
     }
 
     public function input($data = false)
@@ -710,12 +718,6 @@ class Bot
             case preg_match('~^/subzones (\d+)$~', $this->input['callback'], $m):
                 $this->subzones($m[1]);
                 break;
-            case preg_match('~^/showreset$~', $this->input['callback'], $m):
-                $this->showreset();
-                break;
-            case preg_match('~^/reset$~', $this->input['callback'], $m):
-                $this->reset();
-                break;
             case preg_match('~^/proxy$~', $this->input['callback'], $m):
                 $this->proxy();
                 break;
@@ -801,9 +803,8 @@ class Bot
         $adtag      = trim(file_exists('/config/mtprotoadtag') ? file_get_contents('/config/mtprotoadtag') : '');
         $this->ssh('pkill mtproto-proxy', 'tg');
         if (preg_match('~^\w{32}$~', $secret)) {
-            $p = getenv('TGPORT');
             $proxyTag = $adtag ? " -P " . escapeshellarg($adtag) : '';
-            $this->ssh("mtproto-proxy --domain $fakedomain -u nobody -H $p --nat-info 10.10.0.8:{$this->ip} -S $secret --aes-pwd /proxy-secret /proxy-multi.conf -M 1$proxyTag", 'tg', false, '/logs/mtproto');
+            $this->ssh("mtproto-proxy --domain $fakedomain -u nobody -H 443 --nat-info 10.10.0.8:{$this->ip} -S $secret --aes-pwd /proxy-secret /proxy-multi.conf -M 1$proxyTag", 'tg', false, '/logs/mtproto');
         }
     }
 
@@ -917,7 +918,7 @@ class Bot
     public function linkMtproto()
     {
         $s  = file_get_contents('/config/mtprotosecret');
-        $p  = getenv('TGPORT');
+        $p  = $this->getPorts()['tg']['port'];
         $d  = trim(file_get_contents('/config/mtprotodomain') ?: 'yandex.ru');
         $d  = exec("echo $d | tr -d '\\n' | xxd -ps -c 200");
         $ip = $this->getDomain();
@@ -1405,6 +1406,7 @@ class Bot
         $ssl = $this->nginxGetTypeCert();
         $c = $this->getSSConfig();
         $l = $this->getSSLocalConfig();
+        $p = $this->getPorts();
         $domain = $this->getPacConf()['domain'] ?: $this->ip;
         if ($c['plugin']) {
             unset($c['plugin']);
@@ -1412,8 +1414,8 @@ class Bot
             unset($l['plugin']);
             unset($l['plugin_opts']);
             $l['server']      = 'ss';
-            $l['server_port'] = (int) getenv('SSPORT');
-            $c['server_port'] = (int) getenv('SSPORT');
+            $l['server_port'] = (int) $p['ss']['port'];
+            $c['server_port'] = (int) $p['ss']['port'];
         } else {
             $c['plugin']      = 'v2ray-plugin';
             $c['plugin_opts'] = 'server;loglevel=none';
@@ -2350,7 +2352,8 @@ class Bot
         $domain  = $this->getDomain();
         $scheme  = empty($ssl = $this->nginxGetTypeCert()) ? 'http' : 'https';
         $ss      = $this->getSSConfig();
-        $port    = !empty($ss['plugin']) ? (!empty($ssl) ? 443 : 80) : getenv('SSPORT');
+        $p       = $this->getPorts();
+        $port    = !empty($ss['plugin']) ? (!empty($ssl) ? 443 : 80) : $p['ss']['port'];
         $ss_link = preg_replace('~==~', '', 'ss://' . base64_encode("{$ss['method']}:{$ss['password']}")) . "@$domain:$port" . (!empty($ss['plugin']) ? '?plugin=' . urlencode("v2ray-plugin;path=/v2ray;host=$domain" . (!empty($ssl) ? ';tls' : '')) : '');
         $qr_file = __DIR__ . "/qr/shadowsocks.png";
         exec("qrencode -t png -o $qr_file '$ss_link'");
@@ -3366,38 +3369,6 @@ DNS-over-HTTPS with IP:
         $this->menu('excludelist', $page);
     }
 
-    public function showreset()
-    {
-        $data = [
-            [
-                [
-                    'text'          => "confirm",
-                    'callback_data' => "/reset",
-                ],
-                [
-                    'text'          => $this->i18n('back'),
-                    'callback_data' => "/menu",
-                ],
-            ],
-        ];
-        $this->update(
-            $this->input['chat'],
-            $this->input['message_id'],
-            "Reset settings?",
-            $data,
-        );
-    }
-
-    public function reset()
-    {
-        $conf    = $this->readConfig();
-        $address = getenv('ADDRESS');
-        $port    = getenv('WGPORT');
-        $r       = $this->ssh("/bin/sh /reset_wg.sh $address $port");
-        file_put_contents($this->clients, '');
-        $this->menu();
-    }
-
     public function addPeer()
     {
         $this->createPeer(name: 'all');
@@ -3954,15 +3925,16 @@ DNS-over-HTTPS with IP:
 
     public function getAmneziaShortLink($client)
     {
-        $domain  = $this->getDomain();
-        $pac     = $this->getPacConf();
-        $dnsRaw  = $client['interface']['DNS'] ?: $pac[$this->getInstanceWG(1) . 'dns'] ?: $this->dns;
-        $dns     = array_map('trim', explode(',', $dnsRaw));
-        $wgPort      = (int) getenv($this->getInstanceWG() == 'wg1' ? 'WG1PORT' : 'WGPORT');
+        $pac           = $this->getPacConf();
+        $domain        = $pac[$this->getInstanceWG(1) . 'endpoint'] ? $this->ip : $this->getDomain();
+        $dnsRaw        = $client['interface']['DNS'] ?: $pac[$this->getInstanceWG(1) . 'dns'] ?: $this->dns;
+        $dns           = array_map('trim', explode(',', $dnsRaw));
+        $ports         = $this->getPorts();
+        $wgPort        = (int) $ports[$this->getInstanceWG()]['port'];
         $amneziaKeys   = $this->amneziaKeys();
         $protoVer      = array_key_exists('I1', $amneziaKeys) ? "2" : "1";
         $containerName = $protoVer === "2" ? "amnezia-awg2" : "amnezia-awg";
-        $c   = [
+        $c             = [
             "containers" => [
                 [
                     "awg" => [
@@ -4882,8 +4854,9 @@ DNS-over-HTTPS with IP:
         $hash    = $this->getHashBot();
         $domain  = $this->getDomain();
         $ss      = $this->getSSConfig();
+        $p       = $this->getPorts();
         $v2ray   = !empty($ss['plugin']) ? 'ON' : 'OFF';
-        $port    = !empty($ss['plugin']) ? 443 : getenv('SSPORT');
+        $port    = !empty($ss['plugin']) ? 443 : $p['ss']['port'];
         $options = !empty($ss['plugin']) ? "tls;fast-open;path=/v2ray$hash;host=$domain" : "path=/v2ray$hash;host=$domain";
 
         $text = "Menu -> ShadowSocks";
@@ -5115,6 +5088,20 @@ DNS-over-HTTPS with IP:
         }
     }
 
+    public function getPorts()
+    {
+        $f = '/docker/compose';
+        $c =  yaml_parse_file($f);
+        $r = [];
+        foreach ($this->ports as $k => $v) {
+            $r[$k] = [
+                'port'   => !empty($c['services'][$k]['ports']) ? explode(':', $c['services'][$k]['ports'][0])[0] : explode('/', $v)[0],
+                'enable' => !empty($c['services'][$k]['ports']),
+            ];
+        }
+        return $r;
+    }
+
     public function menu($type = false, $arg = false, $return = false)
     {
         $conf   = $this->getPacConf();
@@ -5132,8 +5119,6 @@ DNS-over-HTTPS with IP:
                 }
             }
             $cron   = $this->dontshowcron ? '' : $this->i18n($this->ssh('pgrep -f cron.php', 'service') ? 'on' : 'off') . ' cron';
-            $f      = '/docker/compose';
-            $c      = yaml_parse_file($f)['services'];
             $main[] = 'v' . getenv('VER') . " $branch" . ($update ? ' (have updates)' : '');
 
             if (!empty($conf['domain'])) {
@@ -5154,7 +5139,7 @@ DNS-over-HTTPS with IP:
                         $main[] = 'openconnect ' . "$oc.{$conf['domain']}" . (in_array("$oc.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '');
                     }
                     if (!empty($conf['adguardkey'])) {
-                        $main[] = "{$conf['adguardkey']}.{$conf['domain']}" . (in_array("{$conf['adguardkey']}.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '') . ' adguard DOT';;
+                        $main[] = "{$conf['adguardkey']}.{$conf['domain']}" . (in_array("{$conf['adguardkey']}.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '') . ' adguard DOT';
                     }
                     $main[] = "</blockquote>";
                 } else {
@@ -5163,9 +5148,8 @@ DNS-over-HTTPS with IP:
             }
 
 
-            $ports   = yaml_parse_file('/docker/compose')['services'];
-            $hy_port = explode(':', $c['hy']['ports'][0])[0];
-            $main[]  = '';
+            $ports  = $this->getPorts();
+            $main[] = '';
 
             $main[] = '<code>';
             $main[] = $this->alignColumns([
@@ -5183,15 +5167,15 @@ DNS-over-HTTPS with IP:
                     $this->i18n($this->warpStatus()) . ' ' . $this->i18n('warp'),
                 ],
                 [
-                    $this->i18n(!empty($c['wg']) ? 'on' : 'off') . ' ' . getenv('WGPORT'),
-                    $this->i18n(!empty($c['wg1']) ? 'on' : 'off') . ' ' . getenv('WG1PORT'),
+                    $this->i18n($ports['wg']['enable'] ? 'on' : 'off') . ($ports['wg']['enable'] ? ' ' . $ports['wg']['port'] : 'port unavailable'),
+                    $this->i18n($ports['wg1']['enable'] ? 'on' : 'off') . ($ports['wg1']['enable'] ? ' ' . $ports['wg1']['port'] : 'port unavailable'),
                     $this->i18n('on') . ' 443',
                     $this->i18n('on') . ' 443',
                     $this->i18n('on') . ' 443',
-                    $this->i18n($hy_port ? 'on' : 'off') . ($hy_port ? " $hy_port" : 'port unavailable'),
-                    $this->i18n(!empty($c['tg']) ? 'on' : 'off') . ' ' . getenv('TGPORT'),
+                    $this->i18n($ports['hy']['enable'] ? 'on' : 'off') . ($ports['hy']['enable'] ? ' ' . $ports['hy']['port'] : 'port unavailable'),
+                    $this->i18n($ports['tg']['enable'] ? 'on' : 'off') . ($ports['tg']['enable'] ? ' ' . $ports['tg']['port'] : 'port unavailable'),
                     $this->i18n(!empty($c['ad']) ? 'on' : 'off') . ' 853',
-                    $this->i18n(!empty($c['ss']) ? 'on' : 'off') . ' ' . getenv('SSPORT'),
+                    $this->i18n($ports['ss']['enable'] ? 'on' : 'off') . ($ports['ss']['enable'] ? ' ' . $ports['ss']['port'] : 'port unavailable'),
                     $this->i18n(!empty($c['dnstt']) ? 'on' : 'off') . ' 53',
                     '',
                 ],
@@ -6426,6 +6410,7 @@ DNS-over-HTTPS with IP:
     public function getMirror()
     {
         $s = file_get_contents('/mirror/start_socat.sh');
+        $p = $this->getPorts();
         $t = str_replace([
             '~ip~',
             '~tg~',
@@ -6434,10 +6419,10 @@ DNS-over-HTTPS with IP:
             '~wg2~',
         ], [
             getenv('IP'),
-            getenv('TGPORT'),
-            getenv('SSPORT'),
-            getenv('WGPORT'),
-            getenv('WG1PORT'),
+            $p['tg']['port'],
+            $p['ss']['port'],
+            $p['wg']['port'],
+            $p['wg1']['port'],
         ], $s);
         $this->sendFile($this->input['from'], new CURLStringFile($t, 'socat.sh', 'application/x-sh'));
     }
@@ -8972,7 +8957,7 @@ DNS-over-HTTPS with IP:
     public function applyupdatebot()
     {
         $this->pinBackup($this->update);
-        $r = $this->send($this->input['from'], 'update...');
+        $r = $this->sendDraft($this->input['from'], 1, 'update...');
         file_put_contents('/update/reload_message', "{$this->input['from']}:{$r['result']['message_id']}");
         file_put_contents('/update/key', $this->key);
         file_put_contents('/update/curl', json_encode([
@@ -8986,7 +8971,7 @@ DNS-over-HTTPS with IP:
 
     public function restart()
     {
-        $r = $this->send($this->input['from'], 'restart...');
+        $r = $this->sendDraft($this->input['from'], 1, 'restart...');
         file_put_contents('/update/reload_message', "{$this->input['from']}:{$r['result']['message_id']}");
         file_put_contents('/update/key', $this->key);
         file_put_contents('/update/curl', json_encode([
@@ -9013,7 +8998,7 @@ DNS-over-HTTPS with IP:
             $text[] = 'naive ' . "$np.{$conf['domain']}" . (in_array("$np.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '');
             $text[] = 'openconnect ' . "$oc.{$conf['domain']}" . (in_array("$oc.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '');
             if (!empty($conf['adguardkey'])) {
-                $text[] = "{$conf['adguardkey']}.{$conf['domain']}" . (in_array("{$conf['adguardkey']}.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '') . ' adguard DOT';;
+                $text[] = "{$conf['adguardkey']}.{$conf['domain']}" . (in_array("{$conf['adguardkey']}.{$conf['domain']}", $certs) ? ' (ssl: ' . date('Y-m-d H:i:s', $ssl_expiry) . ')' : '') . ' adguard DOT';
             }
             $text[] = "</blockquote>";
         } else {
@@ -9171,24 +9156,24 @@ DNS-over-HTTPS with IP:
         $pac = $this->getPacConf();
         $data   = [
             [[
-                'text'          => $this->i18n($c['wg'] ? 'on' : 'off') . ' ' . getenv('WGPORT') . ' Wireguard',
-                'callback_data' => "/hidePort wg",
+                'text'          => $this->i18n($c['wg'] ? 'on' : 'off') . ' ' . explode(':', $c['wg']['ports'][0])[0] . ' Wireguard',
+                'callback_data' => "/changePort wg",
             ]],
             [[
-                'text'          => $this->i18n($c['wg1'] ? 'on' : 'off') . ' ' . getenv('WG1PORT') . ' Wireguard',
-                'callback_data' => "/hidePort wg1",
+                'text'          => $this->i18n($c['wg1'] ? 'on' : 'off') . ' ' . explode(':', $c['wg1']['ports'][0])[0] . ' Wireguard',
+                'callback_data' => "/changePort wg1",
             ]],
             [[
-                'text'          => $this->i18n($c['tg'] ? 'on' : 'off') . ' ' . getenv('TGPORT') . ' MTProto ',
-                'callback_data' => "/hidePort tg",
+                'text'          => $this->i18n($c['tg'] ? 'on' : 'off') . ' ' . explode(':', $c['tg']['ports'][0])[0] . ' MTProto ',
+                'callback_data' => "/changePort tg",
             ]],
             [[
                 'text'          => $this->i18n($c['ad'] ? 'on' : 'off') . ' 853 AdguardHome DoT',
                 'callback_data' => "/hidePort ad",
             ]],
             [[
-                'text'          => $this->i18n($c['ss'] ? 'on' : 'off') . ' 8388 Shadowsocks',
-                'callback_data' => "/hidePort ss",
+                'text'          => $this->i18n($c['ss'] ? 'on' : 'off') . ' ' .  explode(':', $c['ss']['ports'][0])[0] . ' Shadowsocks',
+                'callback_data' => "/changePort ss",
             ]],
             [[
                 'text'          => $this->i18n($c['dnstt'] ? 'on' : 'off') . ' 53 dnstt',
@@ -9224,11 +9209,7 @@ DNS-over-HTTPS with IP:
     public function hidePort($container)
     {
         $ports = [
-            'wg'    => getenv('WGPORT') . ':' . getenv('WGPORT') . '/udp',
-            'wg1'   => getenv('WG1PORT') . ':' . getenv('WG1PORT') . '/udp',
-            'tg'    => getenv('TGPORT') . ':' . getenv('TGPORT'),
             'ad'    => '853:853',
-            'ss'    => '8388:8388',
             'dnstt' => '53:53/udp',
         ];
         $f = '/docker/compose';
@@ -9278,9 +9259,7 @@ DNS-over-HTTPS with IP:
     public function setPort($port, $container)
     {
         $port  = (int) $port;
-        $ports = [
-            'hy' => '443/udp',
-        ];
+        $ports = $this->ports;
         $f = '/docker/compose';
         $content = file_exists($f) ? file_get_contents($f) : '';
 
@@ -9296,7 +9275,7 @@ DNS-over-HTTPS with IP:
         $c = $content ? yaml_parse($content) : [];
 
         // Изменяем структуру
-        if (!empty($port) && is_numeric($port) && $port != 443) {
+        if (!empty($port) && is_numeric($port) && $port != 443 && $port != 80) {
             $c['services'][$container]['ports'] = ["$port:$ports[$container]"];
         } else {
             unset($c['services'][$container]);
@@ -9843,12 +9822,13 @@ DNS-over-HTTPS with IP:
         foreach ($data['interface'] as $k => $v) {
             $conf[] = "$k = $v";
         }
+        $ports = $this->getPorts();
         if (!empty($data['peers'])) {
             foreach ($data['peers'] as $peer) {
                 $conf[] = '';
                 $conf[] = $peer['# PublicKey'] ? '# [Peer]' : '[Peer]';
                 if (!empty($peer['Endpoint'])) {
-                    $peer['Endpoint'] = ($pac[$this->getInstanceWG(1) . 'endpoint'] ? $this->ip : $this->getDomain()) . ":" . getenv($this->getInstanceWG(1) ? 'WG1PORT' : 'WGPORT');
+                    $peer['Endpoint'] = ($pac[$this->getInstanceWG(1) . 'endpoint'] ? $this->ip : $this->getDomain()) . ":" . $ports[$this->getInstanceWG()]['port'];
                 }
                 foreach ($peer as $k => $v) {
                     $conf[] = "$k = $v";
@@ -9991,19 +9971,9 @@ DNS-over-HTTPS with IP:
 
     public function syncPortClients()
     {
-        $endpoint = [
-            $this->ip . ':' . getenv('WGPORT'),
-            $this->ip . ':' . getenv('WG1PORT'),
-        ];
         for ($i=0; $i < 2; $i++) {
             $this->wg = $i;
-            $clients  = $this->readClients();
-            foreach ($clients as $k => $v) {
-                foreach ($v['peers'] as $n => $j) {
-                    $clients[$k]['peers'][$n]['Endpoint'] = $endpoint[$i];
-                }
-            }
-            $this->saveClients($clients);
+            $this->saveClients($this->readClients());
         }
         unset($this->wg);
     }
@@ -10011,7 +9981,8 @@ DNS-over-HTTPS with IP:
     public function saveClients(array $clients)
     {
         $c      = $this->getPacConf();
-        $domain = ($c['domain'] ?: $this->ip) . ":" . getenv($this->getInstanceWG(1) ? 'WG1PORT' : 'WGPORT');
+        $ports  = $this->getPorts();
+        $domain = ($c['domain'] ?: $this->ip) . ":" . $ports[$this->getInstanceWG()]['port'];
         foreach ($clients as $k => $v) {
             $clients[$k]['peers'][0]['Endpoint'] = $domain;
         }
@@ -10240,6 +10211,17 @@ DNS-over-HTTPS with IP:
         } else {
             return [$text];
         }
+    }
+
+    public function sendDraft($chat, $draft_id, $text = '', $mode = 'HTML')
+    {
+        $data = [
+            'chat_id'    => $chat,
+            'draft_id'   => $draft_id,
+            'text'       => $text,
+            'parse_mode' => $mode,
+        ];
+        return $this->request('sendMessageDraft', json_encode($data), 1);
     }
 
     public function image($chat, $id_url_cFile, $caption = false, $to = false)
