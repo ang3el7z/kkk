@@ -5258,6 +5258,10 @@ DNS-over-HTTPS with IP:
                                 'text'          => $this->i18n('DNSTT'),
                                 'callback_data' => "/dnstt",
                             ],
+                            [
+                                'text'          => $this->i18n('warp'),
+                                'callback_data' => "/warp",
+                            ],
                         ],
                     ],
                     [
@@ -7258,15 +7262,45 @@ DNS-over-HTTPS with IP:
 
     public function addWarpPlus($key)
     {
-        $c = $this->getPacConf();
+        $c    = $this->getPacConf();
+        $chat = $this->input['chat'];
+        $log  = '';
+
+        $step = function($label, $cmd, $container) use ($chat, &$log) {
+            $log .= "$label...";
+            $this->sendDraft($chat, 1, $log);
+            $out = trim($this->ssh($cmd, $container));
+            $log .= $out ? "\n$out\n" : " ok\n";
+            $this->sendDraft($chat, 1, $log);
+            return empty($out); // true = success (no output = exit 0)
+        };
+
+        $step('stopping warp', 'wg-quick down /etc/warp/wgcf-profile.conf 2>/dev/null || true', 'wp');
+
         if (!empty($key)) {
             $c['warp'] = $key;
-            $this->send($this->input['chat'], 'Warp registration license: ' . $this->ssh("warp-cli --accept-tos registration license $key 2>&1", 'wp'));
+            $step('applying license key', 'WGCF_LICENSE_KEY=' . escapeshellarg($key) . ' wgcf update', 'wp');
         } else {
             unset($c['warp']);
+            $step('removing license key', 'WGCF_LICENSE_KEY= wgcf update', 'wp');
         }
         $this->setPacConf($c);
-        sleep(1);
+
+        $step('generating profile', 'wgcf generate', 'wp');
+        $this->ssh("sed -i '/^Address.*:/d' /etc/warp/wgcf-profile.conf", 'wp');
+        $this->ssh("sed -i '/^AllowedIPs.*::/d' /etc/warp/wgcf-profile.conf", 'wp');
+
+        $started = $step('starting warp', 'out=$(wg-quick up /etc/warp/wgcf-profile.conf 2>&1 | grep -v "skip sysctl"); ec=${PIPESTATUS[0]}; [ "$ec" -ne 0 ] && printf "%s" "$out"; exit $ec', 'wp');
+
+        if ($started) {
+            sleep(1);
+            // sendMessageDraft closes only when sendMessage is called — send a dummy and delete it
+            $r = $this->send($chat, '.');
+            if (!empty($r['result']['message_id'])) {
+                $this->delete($chat, $r['result']['message_id']);
+            }
+        }
+
         $this->warp();
     }
 
@@ -7387,15 +7421,11 @@ DNS-over-HTTPS with IP:
     public function warp()
     {
         $p      = $this->getPacConf();
+        $c      = file_get_contents('/etc/warp/wgcf-profile.conf');
         $text[] = "Menu -> " . $this->i18n('warp');
         $text[] = "status: " . $this->warpStatus();
-        $text[] = "key: <code>{$this->getPacConf()['warp']}</code>";
-        $data[] = [
-            [
-                'text'          => $this->i18n($p['warpoff'] ? 'off' : 'on'),
-                'callback_data' => "/offWarp",
-            ],
-        ];
+        $text[] = "key: <code>{$p['warp']}</code>";
+        $text[] = "<pre>$c</pre>";
         $data[] = [
             [
                 'text'          => $this->i18n('set key'),

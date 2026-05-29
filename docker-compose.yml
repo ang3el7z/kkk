@@ -135,6 +135,7 @@ services:
             - ./singbox_windows:/singbox
             - ./docker-compose.override.yml:/docker/compose
             - /var/run/docker.sock:/var/run/docker.sock:ro
+            - warp:/etc/warp
         environment:
             IP: ${IP}
             VER: ${VER}
@@ -449,7 +450,7 @@ services:
                 ipv4_address: 10.10.0.12
         logging: *default-logging
     wp:
-        image: mercurykd/vpnbot-wg:1.4
+        image: mercurykd/vpnbot-wg:1.5
         build:
             dockerfile: dockerfile/wireguard.dockerfile
             args:
@@ -461,9 +462,10 @@ services:
         devices:
             - /dev/net/tun:/dev/net/tun
         volumes:
-            - ./config/.profile:/root/.bashrc:ro
+            - ./config/.profile:/root/.ashrc:ro
             - ./ssh:/ssh
             - ./config/sshd_config:/etc/ssh/sshd_config
+            - ./config:/config
             - ./scripts/start_wp.sh:/start_wp.sh
             - warp:/etc/warp
         hostname: warp
