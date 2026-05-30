@@ -480,6 +480,7 @@ services:
             - path: ./override.env
               required: false
         stop_grace_period: 1s
+        working_dir: /etc/warp
         networks:
             default:
                 ipv4_address: 10.10.0.13
