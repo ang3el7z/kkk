@@ -8198,29 +8198,6 @@ DNS-over-HTTPS with IP:
                 $c['proxies'][$index]['server'] = '~domain~';
                 $c['proxies'][$index]['uuid']   = '~uid~';
                 switch (true) {
-                    case !empty($client['awg']) && !empty($awg = $this->getAwgClient($client['awg'])):
-                        $c['proxies'][$index] = [
-                            "name"        => '~outbound~',
-                            "type"        => 'wireguard',
-                            "server"      => $awg['server'],
-                            "port"        => $awg['port'],
-                            "ip"          => $awg['ip'],
-                            "private-key" => $awg['private-key'],
-                            "public-key"  => $awg['public-key'],
-                            "allowed-ips" => [
-                                "0.0.0.0/0",
-                            ],
-                            "mtu"                  => $awg['mtu'],
-                            "persistent-keepalive" => 20,
-                            "udp"                  => true,
-                        ];
-                        if (!empty($awg['pre-shared-key'])) {
-                            $c['proxies'][$index]['pre-shared-key'] = $awg['pre-shared-key'];
-                        }
-                        if (!empty($awg['amnezia-wg-option'])) {
-                            $c['proxies'][$index]['amnezia-wg-option'] = $awg['amnezia-wg-option'];
-                        }
-                        break;
                     case $pac['transport'] == 'Reality':
                         unset($c['proxies'][$index]["ws-opts"]);
                         unset($c['proxies'][$index]["skip-cert-verify"]);
@@ -8270,6 +8247,33 @@ DNS-over-HTTPS with IP:
                         $c['proxies'][$index]['servername']       = '~domain~';
                         break;
                 }
+
+
+                    if (!empty($client['awg']) && !empty($awg = $this->getAwgClient($client['awg']))) {
+                        $c['proxies'][$index + 1] = [
+                            "name"        => 'awg',
+                            "type"        => 'wireguard',
+                            "server"      => $awg['server'],
+                            "port"        => $awg['port'],
+                            "ip"          => $awg['ip'],
+                            "private-key" => $awg['private-key'],
+                            "public-key"  => $awg['public-key'],
+                            "allowed-ips" => [
+                                "0.0.0.0/0",
+                            ],
+                            "mtu"                  => $awg['mtu'],
+                            "persistent-keepalive" => 20,
+                            "udp"                  => true,
+                        ];
+                        if (!empty($awg['pre-shared-key'])) {
+                            $c['proxies'][$index + 1]['pre-shared-key'] = $awg['pre-shared-key'];
+                        }
+                        if (!empty($awg['amnezia-wg-option'])) {
+                            $c['proxies'][$index + 1]['amnezia-wg-option'] = $awg['amnezia-wg-option'];
+                        }
+                        $c['proxy-groups'][0]['proxies'][] = 'awg';
+                    }
+
                 $tunpackage = array_filter($pac['tunpackage'] ?? []);
                 $tunprocess = array_filter($pac['tunprocess'] ?? []);
                 if (!empty($tunpackage) || !empty($tunprocess)) {
