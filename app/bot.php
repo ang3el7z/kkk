@@ -63,11 +63,13 @@ class Bot
             preg_quote($this->getHashBot(1))
         ]) . '~';
         $this->ports = [
-            'hy'  => '443/udp',
-            'wg'  => '51820/udp',
-            'wg1' => '51820/udp',
-            'ss'  => '8388',
-            'tg'  => '443',
+            'hy'    => '443/udp',
+            'wg'    => '51820/udp',
+            'wg1'   => '51820/udp',
+            'ss'    => '8388',
+            'tg'    => '443',
+            'ad'    => '853',
+            'dnstt' => '53/udp',
         ];
     }
 
@@ -5174,9 +5176,9 @@ DNS-over-HTTPS with IP:
                     $this->i18n('on') . ' 443',
                     $this->i18n($ports['hy']['enable'] ? 'on' : 'off') . ($ports['hy']['enable'] ? ' ' . $ports['hy']['port'] : 'port unavailable'),
                     $this->i18n($ports['tg']['enable'] ? 'on' : 'off') . ($ports['tg']['enable'] ? ' ' . $ports['tg']['port'] : 'port unavailable'),
-                    $this->i18n(!empty($c['ad']) ? 'on' : 'off') . ' 853',
+                    $this->i18n($ports['ad']['enable'] ? 'on' : 'off') . ($ports['ad']['enable'] ? ' ' . $ports['ad']['port'] : 'port unavailable'),
                     $this->i18n($ports['ss']['enable'] ? 'on' : 'off') . ($ports['ss']['enable'] ? ' ' . $ports['ss']['port'] : 'port unavailable'),
-                    $this->i18n(!empty($c['dnstt']) ? 'on' : 'off') . ' 53',
+                    $this->i18n($ports['dnstt']['enable'] ? 'on' : 'off') . ($ports['dnstt']['enable'] ? ' ' . $ports['dnstt']['port'] : 'port unavailable'),
                     '',
                 ],
             ]);
