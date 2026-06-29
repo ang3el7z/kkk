@@ -252,7 +252,13 @@ Done:
 
 ## Task 06 - Feature Manager
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Application/Feature/FeatureManager.php` with enable/disable/list flows, compose override regeneration, and best-effort rollback on failure
+- added `ContainerRuntime` abstraction plus `NoopContainerRuntime` for dry-run/unit-test safe runtime integration
+- added `tests/FeatureManagerTest.php` covering disable/enable `xray`, SQLite state updates, generated override changes, and recorded runtime calls
 
 Цель: единый application service для enable/disable.
 
