@@ -121,7 +121,13 @@ Done:
 
 ## Task 03 - Feature Registry
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Domain/Feature/FeatureDefinition.php` and `src/Domain/Feature/FeatureRegistry.php`
+- registered core services as non-toggleable and all protocol features as enabled by default
+- added `tests/FeatureRegistryTest.php` smoke test for core toggle policy, service lookup, default enablement, and menu key lookup
 
 Цель: описать все включаемые/отключаемые возможности в одном месте.
 
