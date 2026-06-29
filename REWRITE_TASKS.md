@@ -407,7 +407,13 @@ Done:
 
 ## Task 10 - Legacy Import Script V1
 
-Status: pending
+Status: done
+
+Done:
+
+- added `bin/import-legacy.php` CLI with `--from`, `--db`, `--app-config`, and optional `--report`
+- added `src/Infrastructure/Legacy/LegacyImporter.php` to migrate DB, seed feature defaults, and import admins/settings/WireGuard/Xray/Xray stats with missing-file tolerance
+- dry-run importer now prints row counts for imported entities against repo `config/` fixtures
 
 Цель: one-shot перенос старых данных в SQLite.
 
