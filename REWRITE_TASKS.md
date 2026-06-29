@@ -712,6 +712,16 @@ Done:
 - `Bot` now delegates Shadowsocks config reads, restart flows, import updates, and menu/share-link generation through the extracted module instead of mutating JSON inline
 - added `tests/ShadowsocksModuleTest.php` for config mutation, link rendering, and runtime restart order coverage
 
+## Task 15.6 - Hysteria
+
+Status: done
+
+Done:
+
+- added `src/Module/Hysteria` with YAML config store, runtime interface, and module facade for password sync, persisted config reads, and restart orchestration
+- `Bot` now delegates Hysteria restart/import flows and menu password reads through the extracted module instead of mutating YAML inline
+- added `tests/HysteriaModuleTest.php` for password sync, YAML persistence, and runtime start/stop coverage
+
 ## Task 16 - Cron Task Extraction
 
 Status: pending

@@ -33,6 +33,9 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/NaiveProxy/CaddyfileStore.php';
     require_once dirname(__DIR__) . '/src/Module/NaiveProxy/NaiveProxyModule.php';
     require_once dirname(__DIR__) . '/src/Module/NaiveProxy/NaiveProxyRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Hysteria/HysteriaConfigStore.php';
+    require_once dirname(__DIR__) . '/src/Module/Hysteria/HysteriaModule.php';
+    require_once dirname(__DIR__) . '/src/Module/Hysteria/HysteriaRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksConfigStore.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksModule.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksRuntime.php';
@@ -1257,13 +1260,11 @@ class Bot
     public function restartHysteria()
     {
         $pac = $this->getPacConf();
-        $this->ssh('pkill hysteria', 'hy');
-        $c   = yaml_parse_file('/config/hysteria.yaml');
-        $c['auth']['password'] = $pac['hysteria_pass'] ?? '';
-        yaml_emit_file('/config/hysteria.yaml', $c);
-        if (!empty($pac['hysteria_pass'])) {
-            $this->ssh('hysteria server -c /config/hysteria.yaml', 'hy', false, '/logs/hysteria');
-        }
+        $config = $this->buildHysteriaModule()->syncPassword(
+            $this->buildHysteriaModule()->loadConfig(),
+            (string) ($pac['hysteria_pass'] ?? '')
+        );
+        $this->buildHysteriaModule()->saveAndRestart($config, !empty($pac['hysteria_pass']));
     }
 
     public function chocdns($dns)
@@ -1913,7 +1914,7 @@ class Bot
             'mtprotodomain' => file_get_contents('/config/mtprotodomain'),
             'mtprotoadtag'  => file_exists('/config/mtprotoadtag') ? file_get_contents('/config/mtprotoadtag') : '',
             'xray'          => $this->getXray(),
-            'hy'            => yaml_parse_file('/config/hysteria.yaml'),
+            'hy'            => $this->buildHysteriaModule()->loadConfig(),
             'oc'            => file_get_contents('/config/ocserv.conf'),
             'ocu'           => file_get_contents('/config/ocserv.passwd'),
             'ss'            => $this->getSSConfig(),
@@ -2052,8 +2053,14 @@ class Bot
             if (!empty($json['hy'])) {
                 $out[] = 'update hysteria';
                 $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                yaml_emit_file('/config/hysteria.yaml', $json['hy']);
-                $this->restartHysteria();
+                $config = $this->buildHysteriaModule()->syncPassword(
+                    $json['hy'],
+                    (string) ($this->getPacConf()['hysteria_pass'] ?? '')
+                );
+                $this->buildHysteriaModule()->saveAndRestart(
+                    $config,
+                    !empty($this->getPacConf()['hysteria_pass'])
+                );
             }
             if (!empty($json['pac']['domain'])) {
                 $this->setUpstreamDomainOcserv($json['pac']['domain']);
@@ -6339,12 +6346,11 @@ DNS-over-HTTPS with IP:
 
     public function hysteriaMenu()
     {
-        $pac    = $this->getPacConf();
         $f      = '/docker/compose';
         $c      = yaml_parse_file($f)['services'];
         $port   = explode(':', $c['hy']['ports'][0])[0];
         $domain = $this->getDomain();
-        $pass = $pac['hysteria_pass'] ?? '';
+        $pass = $this->buildHysteriaModule()->extractPassword($this->buildHysteriaModule()->loadConfig());
         $text[] = "Menu -> Hysteria";
         $text[] = "server: " . ($port? "<code>$domain:$port</code>" : 'port unavailable');
         $text[] = "passwd: <code>$pass</code>";
@@ -9457,6 +9463,38 @@ DNS-over-HTTPS with IP:
         return $module ??= new \VpnBot\Module\NaiveProxy\NaiveProxyModule(
             new \VpnBot\Module\NaiveProxy\CaddyfileStore(),
             $this->buildNaiveProxyRuntime()
+        );
+    }
+
+    public function buildHysteriaRuntime(): \VpnBot\Module\Hysteria\HysteriaRuntime
+    {
+        static $runtime;
+
+        return $runtime ??= new class ($this) implements \VpnBot\Module\Hysteria\HysteriaRuntime {
+            public function __construct(
+                private readonly Bot $bot,
+            ) {
+            }
+
+            public function start(): string
+            {
+                return $this->bot->ssh('hysteria server -c /config/hysteria.yaml', 'hy', false, '/logs/hysteria');
+            }
+
+            public function stop(): string
+            {
+                return $this->bot->ssh('pkill hysteria', 'hy');
+            }
+        };
+    }
+
+    public function buildHysteriaModule(): \VpnBot\Module\Hysteria\HysteriaModule
+    {
+        static $module;
+
+        return $module ??= new \VpnBot\Module\Hysteria\HysteriaModule(
+            new \VpnBot\Module\Hysteria\HysteriaConfigStore(),
+            $this->buildHysteriaRuntime()
         );
     }
 
