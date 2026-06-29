@@ -366,7 +366,13 @@ Done:
 
 ## Task 09 - Container Manager Menu
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Telegram/Menu/ContainerManagerMenuBuilder.php` for the container manager screen and toggle button rows
+- added `Container manager` entry to `configMenu`, plus `/menu containers` and `/featureToggle <featureId>` handling in `Bot`
+- wired toggles through `FeatureManager` with a dry-run `NoopContainerRuntime` and added `tests/ContainerManagerMenuBuilderTest.php`
 
 Цель: добавить UI управления контейнерами.
 

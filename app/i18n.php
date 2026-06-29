@@ -405,6 +405,10 @@ $i = [
         'en' => 'restart',
         'ru' => 'перезагрузка',
     ],
+    'container manager'  => [
+        'en' => 'Container manager',
+        'ru' => 'Менеджер контейнеров',
+    ],
 ];
 
 if (file_exists(__DIR__ . '/i18n.override.php')) {

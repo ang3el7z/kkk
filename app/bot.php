@@ -1,12 +1,17 @@
 <?php
 
 if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
+    require_once dirname(__DIR__) . '/src/Application/Feature/ContainerRuntime.php';
+    require_once dirname(__DIR__) . '/src/Application/Feature/FeatureManager.php';
+    require_once dirname(__DIR__) . '/src/Application/Feature/NoopContainerRuntime.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureDefinition.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRegistry.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRepository.php';
+    require_once dirname(__DIR__) . '/src/Infrastructure/Compose/ComposeOverrideWriter.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/ConnectionFactory.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteFeatureRepository.php';
     require_once dirname(__DIR__) . '/src/Telegram/FeatureCallbackGuard.php';
+    require_once dirname(__DIR__) . '/src/Telegram/Menu/ContainerManagerMenuBuilder.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/MenuFilter.php';
 }
 
@@ -184,8 +189,11 @@ class Bot
             case preg_match('~^/menu (?P<type>addpeer) (?P<arg>(?:-)?\d+)$~', $this->input['callback'], $m):
             case preg_match('~^/menu (?P<type>wg) (?P<arg>(?:-)?\d+)$~', $this->input['callback'], $m):
             case preg_match('~^/menu (?P<type>client) (?P<arg>\d+(?:_(?:-)?\d+)?)$~', $this->input['callback'], $m):
-            case preg_match('~^/menu (?P<type>pac|adguard|config|ss|lang|oc|naive|mirror|update|hy)$~', $this->input['callback'], $m):
+            case preg_match('~^/menu (?P<type>pac|adguard|config|ss|lang|oc|naive|mirror|update|hy|containers)$~', $this->input['callback'], $m):
                 $this->menu(type: $m['type'] ?? false, arg: $m['arg'] ?? false);
+                break;
+            case preg_match('~^/featureToggle (?P<feature>[a-z0-9_]+)$~', $this->input['callback'], $m):
+                $this->featureToggle($m['feature']);
                 break;
             case preg_match('~^/changeWG (\d+)$~', $this->input['callback'], $m):
                 $this->changeWG($m[1]);
@@ -5315,6 +5323,7 @@ DNS-over-HTTPS with IP:
             'hy'           => $type == 'hy'      ? $this->hysteriaMenu()                   : false,
             'mirror'       => $type == 'mirror'  ? $this->mirrorMenu()                     : false,
             'update'       => $type == 'update'  ? $this->updatebot()                      : false,
+            'containers'   => $type == 'containers' ? $this->containerManagerMenu()        : false,
         ];
 
         $text = $menu[$type ?: 'main' ]['text'];
@@ -9310,6 +9319,12 @@ DNS-over-HTTPS with IP:
         ];
         $data[] = [
             [
+                'text'          => $this->i18n('container manager'),
+                'callback_data' => "/menu containers",
+            ],
+        ];
+        $data[] = [
+            [
                 'text'          => $this->i18n('branches'),
                 'callback_data' => "/menu update",
             ],
@@ -9345,6 +9360,125 @@ DNS-over-HTTPS with IP:
             'text' => implode("\n", $text),
             'data' => $data,
         ];
+    }
+
+    public function containerManagerMenu()
+    {
+        $states = $this->loadFeatureStates();
+
+        return $this->buildContainerManagerMenuBuilder()->build(
+            $this->buildFeatureRegistry(),
+            $states,
+            fn (\VpnBot\Domain\Feature\FeatureDefinition $definition): string => $this->featureLabel($definition),
+            $this->i18n('back'),
+        );
+    }
+
+    public function featureToggle(string $featureId): void
+    {
+        try {
+            $manager = $this->buildFeatureManager();
+
+            if ($manager === null) {
+                throw new RuntimeException('Feature manager unavailable');
+            }
+
+            $states = $manager->list();
+            $enabled = $states[$featureId] ?? null;
+
+            if ($enabled === null) {
+                throw new RuntimeException('Unknown feature');
+            }
+
+            if ($enabled) {
+                $manager->disable($featureId);
+            } else {
+                $manager->enable($featureId);
+            }
+        } catch (Throwable $exception) {
+            if (! empty($this->input['callback_id'])) {
+                $this->answer($this->input['callback_id'], $exception->getMessage(), true);
+            }
+        }
+
+        $this->menu('containers');
+    }
+
+    public function buildFeatureManager(): ?\VpnBot\Application\Feature\FeatureManager
+    {
+        static $manager;
+        static $resolved = false;
+
+        if ($resolved) {
+            return $manager;
+        }
+
+        $resolved = true;
+
+        try {
+            $repository = $this->buildFeatureRepository();
+
+            if ($repository === null) {
+                return $manager = null;
+            }
+
+            return $manager = new \VpnBot\Application\Feature\FeatureManager(
+                $repository,
+                $this->buildFeatureRegistry(),
+                new \VpnBot\Infrastructure\Compose\ComposeOverrideWriter($this->buildFeatureRegistry()),
+                new \VpnBot\Application\Feature\NoopContainerRuntime(),
+                '/docker/compose',
+            );
+        } catch (Throwable) {
+            return $manager = null;
+        }
+    }
+
+    public function buildContainerManagerMenuBuilder(): \VpnBot\Telegram\Menu\ContainerManagerMenuBuilder
+    {
+        static $builder;
+
+        return $builder ??= new \VpnBot\Telegram\Menu\ContainerManagerMenuBuilder();
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    public function loadFeatureStates(): array
+    {
+        try {
+            $manager = $this->buildFeatureManager();
+
+            if ($manager !== null) {
+                return $manager->list();
+            }
+        } catch (Throwable) {
+        }
+
+        $states = [];
+
+        foreach ($this->buildFeatureRegistry()->all() as $definition) {
+            $states[$definition->id()] = $definition->enabledByDefault();
+        }
+
+        return $states;
+    }
+
+    public function featureLabel(\VpnBot\Domain\Feature\FeatureDefinition $definition): string
+    {
+        return match ($definition->id()) {
+            'wireguard', 'wireguard_1' => $this->i18n('wg_title') . ($definition->id() === 'wireguard_1' ? ' 2' : ''),
+            'xray' => $this->i18n('xray'),
+            'openconnect' => $this->i18n('ocserv'),
+            'naive' => $this->i18n('naive'),
+            'warp' => $this->i18n('warp'),
+            'shadowsocks' => $this->i18n('sh_title'),
+            'hysteria' => $this->i18n('Hysteria'),
+            'adguard' => $this->i18n('ad_title'),
+            'mtproto' => $this->i18n('mtproto'),
+            'dnstt' => $this->i18n('DNSTT'),
+            default => $definition->id(),
+        };
     }
 
     public function ports()
