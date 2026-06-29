@@ -80,7 +80,13 @@ Done:
 
 ## Task 02 - SQLite Foundation
 
-Status: pending
+Status: done
+
+Done:
+
+- added `data` volume and mounted `data:/data` into `php` and `service`
+- added `ConnectionFactory`, `Migrator`, initial SQLite schema, and `bin/migrate.php`
+- migration CLI works with `vendor/autoload.php` when available and falls back to direct requires otherwise
 
 Цель: подготовить SQLite как новый source of truth.
 

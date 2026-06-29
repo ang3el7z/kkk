@@ -16,6 +16,7 @@ networks:
                 - subnet: 10.10.1.0/24
 volumes:
     adguard:
+    data:
     warp:
 
 services:
@@ -135,6 +136,7 @@ services:
             - ./singbox_windows:/singbox
             - ./docker-compose.override.yml:/docker/compose
             - /var/run/docker.sock:/var/run/docker.sock:ro
+            - data:/data
             - warp:/etc/warp
         environment:
             IP: ${IP}
@@ -181,6 +183,7 @@ services:
             - ./scripts/start_service.sh:/start_service.sh
             - ./docker-compose.override.yml:/docker/compose
             - /var/run/docker.sock:/var/run/docker.sock:ro
+            - data:/data
         environment:
             IP: ${IP}
             VER: ${VER}
