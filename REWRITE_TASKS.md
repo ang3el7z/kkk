@@ -672,6 +672,16 @@ Done:
 - `sub()`/`subscription()` now reuse extracted client lookup and template resolution instead of duplicating PAC/Xray template logic
 - added `tests/PacTemplateStoreTest.php` and `tests/SubscriptionModuleTest.php`
 
+## Task 15.2 - AdGuard
+
+Status: done
+
+Done:
+
+- added `src/Module/AdGuard` with config repository/store, runtime interface, and module facade for password/tls sync, Xray client projection, allowed clients, and upstream updates
+- `Bot` now delegates AdGuard restart/config mutations and menu data reads through the new module instead of direct YAML mutation in those paths
+- added `tests/AdGuardModuleTest.php` with in-memory config repository coverage for restart calls and config transforms
+
 ## Task 16 - Cron Task Extraction
 
 Status: pending

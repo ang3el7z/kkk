@@ -23,6 +23,10 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/Pac/PacTemplateStore.php';
     require_once dirname(__DIR__) . '/src/Module/Pac/SubscriptionModule.php';
+    require_once dirname(__DIR__) . '/src/Module/AdGuard/AdGuardConfigStore.php';
+    require_once dirname(__DIR__) . '/src/Module/AdGuard/AdGuardConfigRepository.php';
+    require_once dirname(__DIR__) . '/src/Module/AdGuard/AdGuardModule.php';
+    require_once dirname(__DIR__) . '/src/Module/AdGuard/AdGuardRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/SqliteXrayStateRepository.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayConfigCodec.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayModule.php';
@@ -2637,15 +2641,9 @@ class Bot
         $pac['adpswd'] = $pac['adpswd'] ?: substr(hash('md5', time()), 0, 10);
         $this->setPacConf($pac);
         $ssl = $this->nginxGetTypeCert();
-        $c   = yaml_parse_file($this->adguard);
-        $this->stopAd();
-        $c['users'][0]['password'] = password_hash($pac['adpswd'], PASSWORD_DEFAULT);
-        if (!empty($ssl) && !empty($pac['domain']) && empty($c['tls']['enabled'])) {
-            $c['tls']['enabled']     = true;
-            $c['tls']['server_name'] = $pac['domain'];
-        }
-        yaml_emit_file($this->adguard, $c);
-        $this->startAd();
+        $c = $this->buildAdGuardModule()->loadConfig();
+        $c = $this->buildAdGuardModule()->syncPasswordAndTls($c, $pac['adpswd'], !empty($ssl), $pac['domain'] ?? null);
+        $this->buildAdGuardModule()->saveConfig($c, true);
     }
 
     public function adguardpsswd()
@@ -2844,15 +2842,13 @@ class Bot
     {
         $out[] = 'Restart Adguard Home';
         $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-        $out[] = $this->stopAd();
-        $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-        $c = yaml_parse_file($this->adguard);
-        $c['users'][0]['password'] = password_hash($pass, PASSWORD_DEFAULT);
-        yaml_emit_file($this->adguard, $c);
+        $c = $this->buildAdGuardModule()->loadConfig();
+        $c = $this->buildAdGuardModule()->syncPasswordAndTls($c, $pass, false, null);
         $p = $this->getPacConf();
         $p['adpswd'] = $pass;
         $this->setPacConf($p);
-        $out[] = $this->startAd();
+        $this->buildAdGuardModule()->saveConfig($c, true);
+        $out[] = 'Restarted Adguard Home';
         $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
         sleep(3);
         $this->menu('adguard');
@@ -2886,42 +2882,10 @@ class Bot
     public function adguardXrayClients()
     {
         $xr = $this->getXray();
-        $ad = yaml_parse_file($this->adguard);
-        foreach ($xr['inbounds'][0]['settings']['clients'] as $k => $v) {
-            $tmp[] = [
-                'safe_search' => [
-                    'enabled'    => true,
-                    'bing'       => true,
-                    'duckduckgo' => true,
-                    'google'     => true,
-                    'pixabay'    => true,
-                    'yandex'     => true,
-                    'youtube'    => true,
-                ],
-                'blocked_services' => [
-                    'schedule' => ['time_zone' => date_default_timezone_get()],
-                    'ids'      => [],
-                ],
-                'name'                        => $v['email'],
-                'ids'                         => [$v['id']],
-                'tags'                        => [],
-                'upstreams'                   => [],
-                'uid'                         => $v['id'],
-                'upstreams_cache_size'        => 0,
-                'upstreams_cache_enabled'     => false,
-                'use_global_settings'         => true,
-                'filtering_enabled'           => false,
-                'parental_enabled'            => false,
-                'safebrowsing_enabled'        => false,
-                'use_global_blocked_services' => true,
-                'ignore_querylog'             => false,
-                'ignore_statistics'           => false,
-            ];
-        }
-        $ad['clients']['persistent'] = $tmp;
-        yaml_emit_file($this->adguard, $ad);
-        $this->stopAd();
-        $this->startAd();
+        $ad = $this->buildAdGuardModule()->loadConfig();
+        $clients = $xr['inbounds'][0]['settings']['clients'] ?? [];
+        $ad = $this->buildAdGuardModule()->syncXrayClients($ad, is_array($clients) ? $clients : []);
+        $this->buildAdGuardModule()->saveConfig($ad, true);
     }
 
     public function checkdns()
@@ -2982,12 +2946,10 @@ DNS-over-HTTPS with IP:
     {
         $out[] = 'Restart Adguard Home';
         $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-        $out[] = $this->stopAd();
-        $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-        $c = yaml_parse_file($this->adguard);
-        $c['dns']['upstream_dns'][] = $url;
-        yaml_emit_file($this->adguard, $c);
-        $out[] = $this->startAd();
+        $c = $this->buildAdGuardModule()->loadConfig();
+        $c = $this->buildAdGuardModule()->addUpstream($c, $url);
+        $this->buildAdGuardModule()->saveConfig($c, true);
+        $out[] = 'Restarted Adguard Home';
         $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
         sleep(3);
         $this->menu('adguard');
@@ -2997,23 +2959,20 @@ DNS-over-HTTPS with IP:
     {
         $out[] = 'Restart Adguard Home';
         $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-        $this->stopAd();
-        $c = yaml_parse_file($this->adguard);
-        unset($c['dns']['upstream_dns'][$k]);
-        $c['dns']['upstream_dns'] = array_values($c['dns']['upstream_dns']);
-        yaml_emit_file($this->adguard, $c);
-        $this->startAd();
+        $c = $this->buildAdGuardModule()->loadConfig();
+        $c = $this->buildAdGuardModule()->removeUpstream($c, (int) $k);
+        $this->buildAdGuardModule()->saveConfig($c, true);
         $this->menu('adguard');
     }
 
     public function startAd()
     {
-        return $this->ssh('/opt/adguardhome/AdGuardHome --no-check-update --pidfile /opt/adguardhome/pid -c /config/AdGuardHome.yaml -h 0.0.0.0 -w /opt/adguardhome/work', 'ad', false);
+        return $this->buildAdGuardRuntime()->start();
     }
 
     public function stopAd()
     {
-        return $this->ssh('kill -15 $(cat /opt/adguardhome/pid)', 'ad');
+        return $this->buildAdGuardRuntime()->stop();
     }
 
     public function selfsslInstall()
@@ -8806,7 +8765,7 @@ DNS-over-HTTPS with IP:
 
     public function adguardBasicAuth()
     {
-        return base64_encode('admin:' . $this->getPacConf()['adpswd']);
+        return base64_encode('admin:' . ($this->getPacConf()['adpswd'] ?? ''));
     }
 
     public function adguardChBr()
@@ -8832,9 +8791,10 @@ DNS-over-HTTPS with IP:
             $text .= "DNS over TLS:\n<code>tls://" . (!empty($conf['adguardkey'] )? "{$conf['adguardkey']}." : '') . "$domain</code>";
         }
         $status = $this->i18n(exec("JSON=1 timeout 2 dnslookup google.com ad") ? 'on' : 'off');
-        $safesearch = yaml_parse_file($this->adguard)['filtering']['safe_search']['enabled'];
+        $adguardConfig = $this->buildAdGuardModule()->loadConfig();
+        $safesearch = $adguardConfig['filtering']['safe_search']['enabled'];
         $text .= "\n\nstatus: $status\t\tsafesearch: " . $this->i18n($safesearch ? 'on' : 'off');
-        $allowedClients = yaml_parse_file($this->adguard)['dns']['allowed_clients'];
+        $allowedClients = $adguardConfig['dns']['allowed_clients'];
         $text .= $allowedClients ? "\n\nallowed clients: \n - " . implode("\n - ", $allowedClients) : '';
 
         $data = [
@@ -8887,7 +8847,7 @@ DNS-over-HTTPS with IP:
                 'callback_data' => "/addupstream",
             ],
         ];
-        $upstreams = yaml_parse_file($this->adguard)['dns']['upstream_dns'];
+        $upstreams = $adguardConfig['dns']['upstream_dns'];
         if (!empty($upstreams)) {
             foreach ($upstreams as $k => $v) {
                 $data[] = [
@@ -8919,27 +8879,24 @@ DNS-over-HTTPS with IP:
         $pac = $this->getPacConf();
         $out[] = 'Restart Adguard Home';
         $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-        $this->stopAd();
-        $c = yaml_parse_file($this->adguard);
-        if (!empty($delete)) {
-            unset($c['dns']['allowed_clients']);
-        } else {
-            $c['dns']['allowed_clients'] = [];
-            $c['dns']['allowed_clients'][] = '10.10.0.0/24';
-            if (!empty($pac['adguardkey'])) {
-                $c['dns']['allowed_clients'][] = $pac['adguardkey'];
-            }
-            $c['dns']['allowed_clients'][] = getenv('WGADDRESS');
-            $c['dns']['allowed_clients'][] = getenv('WG1ADDRESS');
-            $c['dns']['allowed_clients'][] = '10.0.2.0/24'; // openconnect
-            if (!empty($xr = $this->getXray())) {
-                foreach ($xr['inbounds'][0]['settings']['clients'] as $v) {
-                    $c['dns']['allowed_clients'][] = $v['id'];
+        $c = $this->buildAdGuardModule()->loadConfig();
+        $allowedClients = ['10.10.0.0/24'];
+        if (!empty($pac['adguardkey'])) {
+            $allowedClients[] = $pac['adguardkey'];
+        }
+        $allowedClients[] = getenv('WGADDRESS') ?: '';
+        $allowedClients[] = getenv('WG1ADDRESS') ?: '';
+        $allowedClients[] = '10.0.2.0/24';
+        $xr = $this->getXray();
+        if (!empty($xr['inbounds'][0]['settings']['clients']) && is_array($xr['inbounds'][0]['settings']['clients'])) {
+            foreach ($xr['inbounds'][0]['settings']['clients'] as $v) {
+                if (is_array($v) && !empty($v['id'])) {
+                    $allowedClients[] = $v['id'];
                 }
             }
         }
-        yaml_emit_file($this->adguard, $c);
-        $this->startAd();
+        $c = $this->buildAdGuardModule()->setAllowedClients($c, $allowedClients, !empty($delete));
+        $this->buildAdGuardModule()->saveConfig($c, true);
         $this->menu('adguard');
     }
 
@@ -9404,6 +9361,38 @@ DNS-over-HTTPS with IP:
         static $module;
 
         return $module ??= new \VpnBot\Module\Pac\SubscriptionModule($this->buildPacTemplateStore());
+    }
+
+    public function buildAdGuardRuntime(): \VpnBot\Module\AdGuard\AdGuardRuntime
+    {
+        static $runtime;
+
+        return $runtime ??= new class ($this) implements \VpnBot\Module\AdGuard\AdGuardRuntime {
+            public function __construct(
+                private readonly Bot $bot,
+            ) {
+            }
+
+            public function start(): string
+            {
+                return $this->bot->ssh('/opt/adguardhome/AdGuardHome --no-check-update --pidfile /opt/adguardhome/pid -c /config/AdGuardHome.yaml -h 0.0.0.0 -w /opt/adguardhome/work', 'ad', false);
+            }
+
+            public function stop(): string
+            {
+                return $this->bot->ssh('kill -15 $(cat /opt/adguardhome/pid)', 'ad');
+            }
+        };
+    }
+
+    public function buildAdGuardModule(): \VpnBot\Module\AdGuard\AdGuardModule
+    {
+        static $module;
+
+        return $module ??= new \VpnBot\Module\AdGuard\AdGuardModule(
+            new \VpnBot\Module\AdGuard\AdGuardConfigStore($this->adguard),
+            $this->buildAdGuardRuntime()
+        );
     }
 
     public function buildSqliteSettingsRepository(): \VpnBot\Domain\Settings\SettingsRepository
