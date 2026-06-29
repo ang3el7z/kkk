@@ -13,6 +13,7 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteFeatureRepository.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Storage/LegacyPacSettingsRepository.php';
     require_once dirname(__DIR__) . '/src/Telegram/FeatureCallbackGuard.php';
+    require_once dirname(__DIR__) . '/src/Telegram/Router.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/ContainerManagerMenuBuilder.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/MenuFilter.php';
 }
@@ -180,6 +181,10 @@ class Bot
     public function action()
     {
         if (! $this->guardFeatureAccess()) {
+            return;
+        }
+
+        if ($this->dispatchRouter()) {
             return;
         }
 
@@ -9490,6 +9495,69 @@ DNS-over-HTTPS with IP:
         static $repository;
 
         return $repository ??= new \VpnBot\Infrastructure\Storage\LegacyPacSettingsRepository($this->pac);
+    }
+
+    public function dispatchRouter(): bool
+    {
+        $route = $this->buildRouter()->match([
+            'message' => is_string($this->input['message']) ? $this->input['message'] : '',
+            'callback' => is_string($this->input['callback']) ? $this->input['callback'] : '',
+        ]);
+
+        if ($route === null) {
+            return false;
+        }
+
+        return match ($route['handler']) {
+            'routeMenu' => $this->routeMenu(),
+            'routeConfigMenu' => $this->routeConfigMenu(),
+            'routeContainersMenu' => $this->routeContainersMenu(),
+            'routeFeatureToggle' => $this->routeFeatureToggle(...$route['args']),
+            'routePorts' => $this->routePorts(),
+            default => false,
+        };
+    }
+
+    public function buildRouter(): \VpnBot\Telegram\Router
+    {
+        static $router;
+
+        return $router ??= new \VpnBot\Telegram\Router();
+    }
+
+    public function routeMenu(): bool
+    {
+        $this->menu();
+
+        return true;
+    }
+
+    public function routeConfigMenu(): bool
+    {
+        $this->menu('config');
+
+        return true;
+    }
+
+    public function routeContainersMenu(): bool
+    {
+        $this->menu('containers');
+
+        return true;
+    }
+
+    public function routeFeatureToggle(string $featureId): bool
+    {
+        $this->featureToggle($featureId);
+
+        return true;
+    }
+
+    public function routePorts(): bool
+    {
+        $this->ports();
+
+        return true;
     }
 
     public function ports()

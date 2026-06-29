@@ -485,7 +485,13 @@ Done:
 
 ## Task 12 - Telegram Router Extraction
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Telegram/Router.php` with initial routes for `/menu`, `/menu config`, `/menu containers`, `/featureToggle <id>`, and `/ports`
+- `Bot::action()` now asks the new router first and falls back to the legacy switch when no route matches
+- added `tests/RouterTest.php` for dry-run route matching and feature-toggle argument capture
 
 Цель: начать вынос `Bot::action()` без большого риска.
 
