@@ -214,7 +214,13 @@ Done:
 
 ## Task 05 - Compose Manager
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Infrastructure/Compose/ComposeOverrideWriter.php` to generate `docker-compose.override.yml` from feature state and managed port settings
+- disabled features are profiled out and dependent services get `depends_on: !override` rewrites so `docker compose config` still passes
+- added atomic temp-write + rename flow and `tests/ComposeOverrideWriterTest.php` dry-run coverage for profiles, ports, and dependency rewrites
 
 Цель: заменить ad hoc YAML-правки на генератор compose override.
 
