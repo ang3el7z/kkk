@@ -702,6 +702,16 @@ Done:
 - `Bot` now delegates NaiveProxy restart and menu credential reads through the extracted module instead of mutating `Caddyfile` inline
 - added `tests/NaiveProxyModuleTest.php` for credential rewrite, parsing, and runtime start/stop coverage
 
+## Task 15.5 - Shadowsocks
+
+Status: done
+
+Done:
+
+- added `src/Module/Shadowsocks` with dual JSON config store, runtime interface, and module facade for password sync, v2ray-plugin toggle, and connection link rendering
+- `Bot` now delegates Shadowsocks config reads, restart flows, import updates, and menu/share-link generation through the extracted module instead of mutating JSON inline
+- added `tests/ShadowsocksModuleTest.php` for config mutation, link rendering, and runtime restart order coverage
+
 ## Task 16 - Cron Task Extraction
 
 Status: pending

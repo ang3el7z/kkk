@@ -33,6 +33,9 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/NaiveProxy/CaddyfileStore.php';
     require_once dirname(__DIR__) . '/src/Module/NaiveProxy/NaiveProxyModule.php';
     require_once dirname(__DIR__) . '/src/Module/NaiveProxy/NaiveProxyRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksConfigStore.php';
+    require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksModule.php';
+    require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/SqliteXrayStateRepository.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayConfigCodec.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayModule.php';
@@ -1358,15 +1361,12 @@ class Bot
 
     public function sspwdch($pass, $nomenu = false)
     {
-        $this->ssh('pkill sslocal', 'proxy');
-        $this->ssh('pkill ssserver', 'ss');
-        $c = $this->getSSConfig();
-        $l = $this->getSSLocalConfig();
-        $c['password'] = $l['password'] = $pass;
-        file_put_contents('/config/ssserver.json', json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        file_put_contents('/config/sslocal.json', json_encode($l, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        $this->ssh('ssserver -v -d -c /config.json', 'ss');
-        $this->ssh('sslocal -v -d -c /config.json', 'proxy');
+        [$serverConfig, $localConfig] = $this->buildShadowsocksModule()->syncPassword(
+            $this->getSSConfig(),
+            $this->getSSLocalConfig(),
+            $pass
+        );
+        $this->buildShadowsocksModule()->saveAndRestart($serverConfig, $localConfig);
 
         if (empty($nomenu)) {
             $this->menu('ss');
@@ -1375,33 +1375,17 @@ class Bot
 
     public function v2ray()
     {
-        $this->ssh('pkill sslocal', 'proxy');
-        $this->ssh('pkill ssserver', 'ss');
         $ssl = $this->nginxGetTypeCert();
-        $c = $this->getSSConfig();
-        $l = $this->getSSLocalConfig();
         $p = $this->getPorts();
         $domain = $this->getPacConf()['domain'] ?: $this->ip;
-        if ($c['plugin']) {
-            unset($c['plugin']);
-            unset($c['plugin_opts']);
-            unset($l['plugin']);
-            unset($l['plugin_opts']);
-            $l['server']      = 'ss';
-            $l['server_port'] = (int) $p['ss']['port'];
-            $c['server_port'] = (int) $p['ss']['port'];
-        } else {
-            $c['plugin']      = 'v2ray-plugin';
-            $c['plugin_opts'] = 'server;loglevel=none';
-            $l['server']      = 'up';
-            $l['server_port'] = $ssl ? 443 : 80;
-            $l['plugin']      = 'v2ray-plugin';
-            $l['plugin_opts'] = ($ssl ? 'tls;' : '') . "fast-open;path=/v2ray;host=$domain";
-        }
-        file_put_contents('/config/ssserver.json', json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        file_put_contents('/config/sslocal.json', json_encode($l, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        $this->ssh('ssserver -v -d -c /config.json', 'ss');
-        $this->ssh('sslocal -v -d -c /config.json', 'proxy');
+        [$serverConfig, $localConfig] = $this->buildShadowsocksModule()->toggleV2rayPlugin(
+            $this->getSSConfig(),
+            $this->getSSLocalConfig(),
+            $domain,
+            !empty($ssl),
+            (int) $p['ss']['port']
+        );
+        $this->buildShadowsocksModule()->saveAndRestart($serverConfig, $localConfig);
         $this->menu('ss');
     }
 
@@ -2019,17 +2003,13 @@ class Bot
             if (!empty($json['ss'])) {
                 $out[] = 'update shadowsocks server';
                 $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->ssh('pkill ssserver', 'ss');
-                file_put_contents('/config/ssserver.json', json_encode($json['ss'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-                $this->ssh('ssserver -v -d -c /config.json', 'ss');
+                $this->buildShadowsocksModule()->saveServerAndRestart($json['ss']);
             }
             // sl
             if (!empty($json['sl'])) {
                 $out[] = 'update shadowsocks proxy';
                 $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->ssh('pkill sslocal', 'proxy');
-                file_put_contents('/config/sslocal.json', json_encode($json['sl'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-                $this->ssh('sslocal -v -d -c /config.json', 'proxy');
+                $this->buildShadowsocksModule()->saveLocalAndRestart($json['sl']);
             }
             // mtproto
             if (!empty($json['mtproto'])) {
@@ -2327,8 +2307,13 @@ class Bot
         $scheme  = empty($ssl = $this->nginxGetTypeCert()) ? 'http' : 'https';
         $ss      = $this->getSSConfig();
         $p       = $this->getPorts();
-        $port    = !empty($ss['plugin']) ? (!empty($ssl) ? 443 : 80) : $p['ss']['port'];
-        $ss_link = preg_replace('~==~', '', 'ss://' . base64_encode("{$ss['method']}:{$ss['password']}")) . "@$domain:$port" . (!empty($ss['plugin']) ? '?plugin=' . urlencode("v2ray-plugin;path=/v2ray;host=$domain" . (!empty($ssl) ? ';tls' : '')) : '');
+        $ss_link = $this->buildShadowsocksModule()->buildConnectionDetails(
+            $ss,
+            $domain,
+            (int) $p['ss']['port'],
+            '',
+            !empty($ssl)
+        )['link'];
         $qr_file = __DIR__ . "/qr/shadowsocks.png";
         exec("qrencode -t png -o $qr_file '$ss_link'");
         $r = $this->sendPhoto(
@@ -4770,12 +4755,12 @@ DNS-over-HTTPS with IP:
 
     public function getSSConfig()
     {
-        return json_decode(file_get_contents('/config/ssserver.json'), true);
+        return $this->buildShadowsocksModule()->loadServerConfig();
     }
 
     public function getSSLocalConfig()
     {
-        return json_decode(file_get_contents('/config/sslocal.json'), true);
+        return $this->buildShadowsocksModule()->loadLocalConfig();
     }
 
     public function menuSS()
@@ -4784,9 +4769,16 @@ DNS-over-HTTPS with IP:
         $domain  = $this->getDomain();
         $ss      = $this->getSSConfig();
         $p       = $this->getPorts();
-        $v2ray   = !empty($ss['plugin']) ? 'ON' : 'OFF';
-        $port    = !empty($ss['plugin']) ? 443 : $p['ss']['port'];
-        $options = !empty($ss['plugin']) ? "tls;fast-open;path=/v2ray$hash;host=$domain" : "path=/v2ray$hash;host=$domain";
+        $details = $this->buildShadowsocksModule()->buildConnectionDetails(
+            $ss,
+            $domain,
+            (int) $p['ss']['port'],
+            $hash,
+            true
+        );
+        $v2ray   = $details['plugin_enabled'] ? 'ON' : 'OFF';
+        $port    = $details['port'];
+        $options = $details['options'];
 
         $text = "Menu -> ShadowSocks";
         $data[] = [
@@ -4795,13 +4787,13 @@ DNS-over-HTTPS with IP:
                 'callback_data' => "/sspswd",
             ],
         ];
-        $ss_link = preg_replace('~==~', '', 'ss://' . base64_encode("{$ss['method']}:{$ss['password']}")) . "@$domain:$port" . (!empty($ss['plugin']) ? '?plugin=' . urlencode("v2ray-plugin;path=/v2ray$hash;host=$domain;tls") : '');
+        $ss_link = $details['link'];
         $text .= "\n\n<code>$ss_link</code>\n";
         $text .= "\n\npassword: <span class='tg-spoiler'>{$ss['password']}</span>";
         $text .= "\n\nserver: <code>$domain:$port</code>";
         $text .= "\n\nmethod: <code>{$ss['method']}</code>";
         $text .= "\n\nnameserver: <code>10.10.0.5</code>";
-        if ($ss['plugin']) {
+        if ($details['plugin_enabled']) {
             $text .= "\n\nplugin: <code>v2ray-plugin</code>";
             $text .= "\n\nv2ray options: <code>$options</code>";
         }
@@ -9465,6 +9457,48 @@ DNS-over-HTTPS with IP:
         return $module ??= new \VpnBot\Module\NaiveProxy\NaiveProxyModule(
             new \VpnBot\Module\NaiveProxy\CaddyfileStore(),
             $this->buildNaiveProxyRuntime()
+        );
+    }
+
+    public function buildShadowsocksRuntime(): \VpnBot\Module\Shadowsocks\ShadowsocksRuntime
+    {
+        static $runtime;
+
+        return $runtime ??= new class ($this) implements \VpnBot\Module\Shadowsocks\ShadowsocksRuntime {
+            public function __construct(
+                private readonly Bot $bot,
+            ) {
+            }
+
+            public function startServer(): string
+            {
+                return $this->bot->ssh('ssserver -v -d -c /config.json', 'ss');
+            }
+
+            public function stopServer(): string
+            {
+                return $this->bot->ssh('pkill ssserver', 'ss');
+            }
+
+            public function startLocal(): string
+            {
+                return $this->bot->ssh('sslocal -v -d -c /config.json', 'proxy');
+            }
+
+            public function stopLocal(): string
+            {
+                return $this->bot->ssh('pkill sslocal', 'proxy');
+            }
+        };
+    }
+
+    public function buildShadowsocksModule(): \VpnBot\Module\Shadowsocks\ShadowsocksModule
+    {
+        static $module;
+
+        return $module ??= new \VpnBot\Module\Shadowsocks\ShadowsocksModule(
+            new \VpnBot\Module\Shadowsocks\ShadowsocksConfigStore(),
+            $this->buildShadowsocksRuntime()
         );
     }
 
