@@ -2,8 +2,10 @@
 
 if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Application/Feature/ContainerRuntime.php';
+    require_once dirname(__DIR__) . '/src/Application/Feature/DockerContainerRuntime.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/FeatureManager.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/NoopContainerRuntime.php';
+    require_once dirname(__DIR__) . '/src/Bootstrap/DatabaseBootstrapper.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureDefinition.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRegistry.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRepository.php';
@@ -11,6 +13,8 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Infrastructure/Compose/ComposeOverrideWriter.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/ConnectionFactory.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteFeatureRepository.php';
+    require_once dirname(__DIR__) . '/src/Infrastructure/Process/CommandRunner.php';
+    require_once dirname(__DIR__) . '/src/Infrastructure/Process/ProcOpenCommandRunner.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Storage/LegacyPacSettingsRepository.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/LegacyWireGuardClientStore.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardConfigCodec.php';
@@ -93,6 +97,8 @@ class Bot
             'ad'    => '853',
             'dnstt' => '53/udp',
         ];
+
+        $this->bootstrapFeatureStorage();
     }
 
     public function input($data = false)
@@ -6430,11 +6436,7 @@ DNS-over-HTTPS with IP:
         $resolved = true;
 
         try {
-            if (! file_exists('/data/vpnbot.sqlite')) {
-                return $repository = null;
-            }
-
-            $connection = (new \VpnBot\Infrastructure\Database\ConnectionFactory())->create('/data/vpnbot.sqlite');
+            $connection = $this->buildDatabaseBootstrapper()->bootstrap();
 
             return $repository = new \VpnBot\Infrastructure\Database\SqliteFeatureRepository(
                 $connection,
@@ -9439,11 +9441,54 @@ DNS-over-HTTPS with IP:
                 $repository,
                 $this->buildFeatureRegistry(),
                 new \VpnBot\Infrastructure\Compose\ComposeOverrideWriter($this->buildFeatureRegistry()),
-                new \VpnBot\Application\Feature\NoopContainerRuntime(),
+                $this->buildContainerRuntime(),
                 '/docker/compose',
             );
         } catch (Throwable) {
             return $manager = null;
+        }
+    }
+
+    public function buildDatabaseBootstrapper(): \VpnBot\Bootstrap\DatabaseBootstrapper
+    {
+        static $bootstrapper;
+
+        return $bootstrapper ??= new \VpnBot\Bootstrap\DatabaseBootstrapper(
+            new \VpnBot\Infrastructure\Database\ConnectionFactory(),
+            $this->buildFeatureRegistry()
+        );
+    }
+
+    public function buildContainerRuntime(): \VpnBot\Application\Feature\ContainerRuntime
+    {
+        static $runtime;
+
+        return $runtime ??= new \VpnBot\Application\Feature\DockerContainerRuntime(
+            new \VpnBot\Infrastructure\Process\ProcOpenCommandRunner(),
+            [
+                'docker',
+                'compose',
+                '-f',
+                '/docker/docker-compose.yml',
+                '-f',
+                '/docker/compose',
+            ],
+        );
+    }
+
+    public function bootstrapFeatureStorage(): void
+    {
+        static $bootstrapped = false;
+
+        if ($bootstrapped) {
+            return;
+        }
+
+        $bootstrapped = true;
+
+        try {
+            $this->buildDatabaseBootstrapper()->bootstrap();
+        } catch (Throwable) {
         }
     }
 

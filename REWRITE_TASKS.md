@@ -294,6 +294,43 @@ Done:
 - Не подключать к Telegram UI.
 - Не запускать Docker реально.
 
+## Task 06b - Real DockerContainerRuntime + DB bootstrap
+
+Status: done
+
+Done:
+
+- added `DockerContainerRuntime` with process runner abstraction that issues `docker compose stop/rm/up` for affected services
+- `Bot` now bootstraps `/data/vpnbot.sqlite` via migrations + feature seed defaults and wires `FeatureManager` to the real runtime
+- mounted base compose file into `php`/`service` so runtime can safely recreate services from inside containers
+- added narrow tests for docker runtime command generation and DB bootstrap seed behavior
+
+Цель: заменить test-only runtime на реальный compose-backed runtime и гарантировать bootstrap SQLite без legacy auto-import.
+
+Входные файлы:
+
+- `app/bot.php`
+- Task 02/04/06 DB + feature classes
+- `docker-compose.yml`
+
+Сделать:
+
+- Добавить реальный `DockerContainerRuntime`, который использует Docker socket/`docker compose` через abstraction.
+- `FeatureManager` в `app/bot.php` должен использовать реальный runtime, не `NoopContainerRuntime`.
+- Disable feature должен stop/remove affected services.
+- Enable feature должен regenerate compose override и start affected services.
+- Оставить безопасный dry-run/noop mode только для tests.
+- Добавить bootstrap DB/migrations: если `/data/vpnbot.sqlite` отсутствует, создать schema и seed features defaults.
+- Не мигрировать legacy автоматически без явной команды.
+- Добавить/обновить tests.
+
+Проверка:
+
+- `php -l` changed PHP
+- related tests
+- `php bin/migrate.php --db ./tmp/vpnbot-test.sqlite`
+- `docker compose config`
+
 ## Task 07 - Menu Button Filter
 
 Status: done
