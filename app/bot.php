@@ -1,5 +1,14 @@
 <?php
 
+if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
+    require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureDefinition.php';
+    require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRegistry.php';
+    require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRepository.php';
+    require_once dirname(__DIR__) . '/src/Infrastructure/Database/ConnectionFactory.php';
+    require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteFeatureRepository.php';
+    require_once dirname(__DIR__) . '/src/Telegram/Menu/MenuFilter.php';
+}
+
 class Bot
 {
     public $input;
@@ -5304,7 +5313,7 @@ DNS-over-HTTPS with IP:
         ];
 
         $text = $menu[$type ?: 'main' ]['text'];
-        $data = $menu[$type ?: 'main' ]['data'];
+        $data = $this->filterMenuButtons($menu[$type ?: 'main' ]['data']);
 
         if (empty($type) && $update) {
             $b = exec('git -C / rev-parse --abbrev-ref HEAD');
@@ -6289,6 +6298,46 @@ DNS-over-HTTPS with IP:
         $r = json_decode(curl_exec($ch), true);
         curl_close($ch);
         return $r;
+    }
+
+    public function filterMenuButtons(array $keyboard): array
+    {
+        try {
+            return $this->buildMenuFilter()->filter($keyboard);
+        } catch (Throwable) {
+            return $keyboard;
+        }
+    }
+
+    public function buildMenuFilter(): \VpnBot\Telegram\Menu\MenuFilter
+    {
+        static $filter;
+        static $resolved = false;
+
+        if ($resolved) {
+            return $filter ?? new \VpnBot\Telegram\Menu\MenuFilter(new \VpnBot\Domain\Feature\FeatureRegistry());
+        }
+
+        $resolved = true;
+
+        try {
+            if (! file_exists('/data/vpnbot.sqlite')) {
+                $filter = new \VpnBot\Telegram\Menu\MenuFilter(new \VpnBot\Domain\Feature\FeatureRegistry());
+
+                return $filter;
+            }
+
+            $registry = new \VpnBot\Domain\Feature\FeatureRegistry();
+            $connection = (new \VpnBot\Infrastructure\Database\ConnectionFactory())->create('/data/vpnbot.sqlite');
+            $repository = new \VpnBot\Infrastructure\Database\SqliteFeatureRepository($connection, $registry);
+            $filter = new \VpnBot\Telegram\Menu\MenuFilter($registry, $repository);
+
+            return $filter;
+        } catch (Throwable) {
+            $filter = new \VpnBot\Telegram\Menu\MenuFilter(new \VpnBot\Domain\Feature\FeatureRegistry());
+
+            return $filter;
+        }
     }
 
     public function cleanDocker()

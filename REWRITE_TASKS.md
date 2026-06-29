@@ -296,7 +296,13 @@ Done:
 
 ## Task 07 - Menu Button Filter
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Telegram/Menu/MenuFilter.php` to strip disabled feature buttons from inline keyboards by `callback_data`
+- wired `Bot::menu()` through the new filter with guarded SQLite/repository bootstrap and allow-all fallback when DB is missing or unavailable
+- added `tests/MenuFilterTest.php` covering `xray` and `adguard` button removal while keeping non-feature config buttons
 
 Цель: скрывать кнопки disabled features без полного переписывания меню.
 
