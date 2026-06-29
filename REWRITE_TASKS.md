@@ -591,7 +591,14 @@ Done:
 
 ## Task 14 - Xray Module Extraction
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Module/Xray` with DB-backed state repository, config codec/normalizer, runtime interface, and module facade
+- `Bot` now delegates `getXray`, `restartXray`, `linkXray`, `getXrayStats`, and `setXrayStats` through the Xray module
+- Xray config render now hydrates users from SQLite and keeps `/config/xray.json` as generated runtime config while stats move behind the module
+- added `tests/XrayModuleTest.php` for DB fixture render + sample config parse coverage
 
 Цель: вынести Xray/VLESS state + config render.
 

@@ -13,6 +13,7 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Infrastructure/Compose/ComposeOverrideWriter.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/ConnectionFactory.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteFeatureRepository.php';
+    require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteSettingsRepository.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Process/CommandRunner.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Process/ProcOpenCommandRunner.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Storage/LegacyPacSettingsRepository.php';
@@ -20,6 +21,10 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardConfigCodec.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardModule.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Xray/SqliteXrayStateRepository.php';
+    require_once dirname(__DIR__) . '/src/Module/Xray/XrayConfigCodec.php';
+    require_once dirname(__DIR__) . '/src/Module/Xray/XrayModule.php';
+    require_once dirname(__DIR__) . '/src/Module/Xray/XrayRuntime.php';
     require_once dirname(__DIR__) . '/src/Telegram/FeatureCallbackGuard.php';
     require_once dirname(__DIR__) . '/src/Telegram/Router.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/ContainerManagerMenuBuilder.php';
@@ -851,90 +856,7 @@ class Bot
 
     public function restartXray($c, $norestart = false)
     {
-        $c['inbounds'][0]['settings']['clients'] = array_values($c['inbounds'][0]['settings']['clients']);
-        $c['log']['access'] = '/logs/xray';
-        foreach ($c['inbounds'] as $v) {
-            if ($v['tag'] == 'api') {
-                $api = true;
-                break;
-            }
-        }
-        if (empty($api)) {
-            $c['inbounds'][] = [
-                "listen"   => "127.0.0.1",
-                "port"     => 8080,
-                "protocol" => "dokodemo-door",
-                "settings" => [
-                    "address" => "127.0.0.1"
-                ],
-                "tag" => "api"
-            ];
-        }
-        foreach ($c['routing']['rules'] as $v) {
-            if ($v['outboundTag'] == 'api') {
-                $rule = true;
-                break;
-            }
-        }
-        if (empty($rule)) {
-            $c['routing']['rules'][] = [
-                "inboundTag"  => ["api"],
-                "outboundTag" => "api",
-                "type"        => "field"
-            ];
-        }
-
-        foreach ($c['inbounds'] as $v) {
-            if ($v['tag'] == 'wg-in') {
-                $wg = true;
-                break;
-            }
-        }
-        if (empty($wg)) {
-            $c['inbounds'][] = [
-                "port"     => 10808,
-                "protocol" => "socks",
-                "settings" => [
-                    "auth" => "noauth",
-                    "udp"  => true,
-                    "ip"   => "0.0.0.0"
-                ],
-                "tag"      => "wg-in",
-                "sniffing" => [
-                    "destOverride" => [
-                        "http",
-                        "tls",
-                        "quic"
-                    ],
-                    "enabled" => true
-                ]
-            ];
-        }
-        $c['stats'] = new stdClass();
-        $c['api'] = [
-            'services' => ['StatsService'],
-            'tag'      => 'api'
-        ];
-        $l = new stdClass();
-        $l->{'0'} = [
-            "statsUserUplink"   => true,
-            "statsUserDownlink" => true
-        ];
-        $c['policy']['levels'] = $l;
-        $c['policy']['system'] = [
-            "statsInboundUplink"    => true,
-            "statsInboundDownlink"  => true,
-            "statsOutboundUplink"   => true,
-            "statsOutboundDownlink" => true
-        ];
-        if (empty($norestart)) {
-            $this->collectSession();
-            file_put_contents('/config/xray.json', json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-            $this->ssh('pkill xray', 'xr');
-            $this->ssh('xray run -config /xray.json > /dev/null 2>&1 &', 'xr');
-        } else {
-            file_put_contents('/config/xray.json', json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        }
+        $this->buildXrayModule()->saveConfig($c, empty($norestart));
     }
 
     public function collectSession() {
@@ -6252,70 +6174,18 @@ DNS-over-HTTPS with IP:
 
     public function linkXray($i, $s = false)
     {
-        $c      = $this->getXray();
         $pac    = $this->getPacConf();
         $domain = $this->getDomain($pac['transport'] != 'Reality');
-        $scheme = empty($this->nginxGetTypeCert()) ? 'http' : 'https';
         $hash   = $this->getHashBot();
-        $si     = "$scheme://{$domain}/pac$hash/" . base64_encode(serialize([
-            'h' => $hash,
-            't' => 'si',
-            's' => $c['inbounds'][0]['settings']['clients'][$i]['id'],
-        ]));
-        $v2     = "$scheme://{$domain}/pac$hash/" . base64_encode(serialize([
-            'h' => $hash,
-            't' => 's',
-            's' => $c['inbounds'][0]['settings']['clients'][$i]['id'],
-        ]));
 
-        switch ($s) {
-            case 1:
-                return "v2rayng://install-config?url=$v2#{$c['inbounds'][0]['settings']['clients'][$i]['id']}";
-            case 2:
-                return "sing-box://import-remote-profile/?url={$si}#{$c['inbounds'][0]['settings']['clients'][$i]['email']}";
-
-            default:
-                switch ($pac['transport']) {
-                    case 'Reality':
-                        $link = "vless://{$c['inbounds'][0]['settings']['clients'][$i]['id']}@$domain:443"
-                                    . "?security=reality"
-                                    . "&sni={$c['inbounds'][0]['streamSettings']['realitySettings']['serverNames'][0]}"
-                                    . "&fp=chrome&pbk={$pac['xray']}"
-                                    . "&sid={$c['inbounds'][0]['streamSettings']['realitySettings']['shortIds'][0]}"
-                                    . "&type=tcp"
-                                    . "&flow=xtls-rprx-vision"
-                                    . "#{$c['inbounds'][0]['settings']['clients'][$i]['email']}";
-                        break;
-                    case 'xhttp':
-                        $link = "vless://{$c['inbounds'][0]['settings']['clients'][$i]['id']}@$domain:443"
-                                    . "?security=tls"
-                                    . "&type=xhttp"
-                                    . "&headerType="
-                                    . "&path=%2Fws$hash"
-                                    . "&host=$domain"
-                                    . "&flow="
-                                    . "&mode=packet-up"
-                                    . "&extra=%7B%22xmux%22%3A%7B%22cMaxReuseTimes%22%3A0%2C%22maxConcurrency%22%3A%2216-32%22%2C%22maxConnections%22%3A0%2C%22hKeepAlivePeriod%22%3A0%2C%22hMaxRequestTimes%22%3A%22600-900%22%2C%22hMaxReusableSecs%22%3A%221800-3000%22%7D%2C%22headers%22%3A%7B%7D%2C%22noGRPCHeader%22%3Afalse%2C%22xPaddingBytes%22%3A%22100-1000%22%2C%22scMaxEachPostBytes%22%3A1000000%2C%22scMinPostsIntervalMs%22%3A30%2C%22scStreamUpServerSecs%22%3A%2220-80%22%7D"
-                                    . "&sni=$domain"
-                                    . "&fp=chrome"
-                                    . "&alpn=h2"
-                                    . "#{$c['inbounds'][0]['settings']['clients'][$i]['email']}";
-                        break;
-
-                    default:
-                        $link =  "vless://{$c['inbounds'][0]['settings']['clients'][$i]['id']}@$domain:443"
-                                    . "?flow="
-                                    . "&path=%2Fws$hash"
-                                    . "&security=tls"
-                                    . "&sni=$domain"
-                                    . "&fp=chrome"
-                                    . "&type=ws"
-                                    . "#{$c['inbounds'][0]['settings']['clients'][$i]['email']}";
-                        break;
-                }
-                return $link;
-
-        }
+        return $this->buildXrayModule()->buildLink(
+            (int) $i,
+            $pac,
+            $domain,
+            $hash,
+            $this->nginxGetTypeCert(),
+            $s === false ? false : (int) $s,
+        );
     }
 
     public function dockerApi($url, $method = 'GET', $data = [])
@@ -6805,12 +6675,12 @@ DNS-over-HTTPS with IP:
 
     public function getXrayStats()
     {
-        return json_decode(file_get_contents('/config/xray.stats'), true) ?: [];
+        return $this->buildXrayModule()->getStats();
     }
 
     public function setXrayStats($x)
     {
-        file_put_contents('/config/xray.stats', json_encode($x));
+        $this->buildXrayModule()->saveStats($x);
     }
 
     public function resetXrUser($i)
@@ -8827,7 +8697,7 @@ DNS-over-HTTPS with IP:
 
     public function getXray()
     {
-        return json_decode(file_get_contents('/config/xray.json'), true);
+        return $this->buildXrayModule()->getConfig();
     }
 
     public function setUpstreamDomain($domain)
@@ -9546,6 +9416,15 @@ DNS-over-HTTPS with IP:
         return $repository ??= new \VpnBot\Infrastructure\Storage\LegacyPacSettingsRepository($this->pac);
     }
 
+    public function buildSqliteSettingsRepository(): \VpnBot\Domain\Settings\SettingsRepository
+    {
+        static $repository;
+
+        return $repository ??= new \VpnBot\Infrastructure\Database\SqliteSettingsRepository(
+            $this->buildDatabaseBootstrapper()->bootstrap()
+        );
+    }
+
     public function buildWireGuardModule(): \VpnBot\Module\WireGuard\WireGuardModule
     {
         $service = $this->getInstanceWG();
@@ -9589,6 +9468,50 @@ DNS-over-HTTPS with IP:
             new \VpnBot\Module\WireGuard\WireGuardConfigCodec(),
             $runtime,
             $store,
+        );
+    }
+
+    public function buildXrayModule(): \VpnBot\Module\Xray\XrayModule
+    {
+        static $module;
+
+        if ($module instanceof \VpnBot\Module\Xray\XrayModule) {
+            return $module;
+        }
+
+        $runtime = new class ($this) implements \VpnBot\Module\Xray\XrayRuntime {
+            public function __construct(
+                private readonly Bot $bot,
+            ) {
+            }
+
+            public function apply(array $config, bool $restart): void
+            {
+                if ($restart) {
+                    $this->bot->collectSession();
+                }
+
+                file_put_contents(
+                    '/config/xray.json',
+                    json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                );
+
+                if (! $restart) {
+                    return;
+                }
+
+                $this->bot->ssh('pkill xray', 'xr');
+                $this->bot->ssh('xray run -config /xray.json > /dev/null 2>&1 &', 'xr');
+            }
+        };
+
+        return $module = new \VpnBot\Module\Xray\XrayModule(
+            new \VpnBot\Module\Xray\XrayConfigCodec(),
+            new \VpnBot\Module\Xray\SqliteXrayStateRepository(
+                $this->buildDatabaseBootstrapper()->bootstrap(),
+                $this->buildSqliteSettingsRepository()
+            ),
+            $runtime,
         );
     }
 
