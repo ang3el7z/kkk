@@ -36,6 +36,9 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/Hysteria/HysteriaConfigStore.php';
     require_once dirname(__DIR__) . '/src/Module/Hysteria/HysteriaModule.php';
     require_once dirname(__DIR__) . '/src/Module/Hysteria/HysteriaRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Dnstt/DnsttKeyStore.php';
+    require_once dirname(__DIR__) . '/src/Module/Dnstt/DnsttModule.php';
+    require_once dirname(__DIR__) . '/src/Module/Dnstt/DnsttRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksConfigStore.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksModule.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksRuntime.php';
@@ -1906,10 +1909,7 @@ class Bot
                 'private' => file_get_contents('/certs/cert_private'),
                 'public'  => file_get_contents('/certs/cert_public'),
             ] : false,
-            'dnstt' => file_exists('/config/dnstt/server.key') ? [
-                'private' => file_get_contents('/config/dnstt/server.key'),
-                'public'  => file_get_contents('/config/dnstt/server.pub'),
-            ] : false,
+            'dnstt' => $this->buildDnsttModule()->loadKeyPair(),
             'mtproto'       => file_get_contents('/config/mtprotosecret'),
             'mtprotodomain' => file_get_contents('/config/mtprotodomain'),
             'mtprotoadtag'  => file_exists('/config/mtprotoadtag') ? file_get_contents('/config/mtprotoadtag') : '',
@@ -2070,8 +2070,7 @@ class Bot
             if (!empty($json['dnstt'])) {
                 $out[] = 'update dnstt certificates';
                 $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                file_put_contents('/config/dnstt/server.key', $json['dnstt']['private']);
-                file_put_contents('/config/dnstt/server.pub', $json['dnstt']['public']);
+                $this->buildDnsttModule()->saveKeyPair($json['dnstt']);
             }
             // nginx
             $out[] = 'reset nginx';
@@ -4937,20 +4936,15 @@ DNS-over-HTTPS with IP:
     public function dnsttStart()
     {
         $c = $this->getPacConf();
-        $this->ssh('pkill dnstt', 'dnstt');
-        if (!empty($c['dnsttDomain']) && !empty($c['dnsttPassword'])) {
-            $this->ssh("adduser -D -s /bin/sh vpnbot", 'dnstt');
-            $this->ssh("echo 'vpnbot:{$c['dnsttPassword']}' | chpasswd", 'dnstt');
-            if (!file_exists('/config/dnstt/server.key')) {
-                $this->ssh("dnstt-server -gen-key -privkey-file /dnstt/server.key -pubkey-file /dnstt/server.pub", 'dnstt');
-            }
-            $this->ssh("dnstt-server -udp :53 -privkey-file /dnstt/server.key {$c['dnsttDomain']} 127.0.0.1:22", 'dnstt' , false, '/logs/dnstt');
-        }
+        $this->buildDnsttModule()->restart(
+            (string) ($c['dnsttDomain'] ?? ''),
+            (string) ($c['dnsttPassword'] ?? '')
+        );
     }
 
     public function dnsttDownload()
     {
-        $this->sendFile($this->input['from'], curl_file_create('/config/dnstt/server.pub'));
+        $this->sendFile($this->input['from'], curl_file_create($this->buildDnsttModule()->publicKeyPath()));
     }
 
     public function showdnstt()
@@ -4964,13 +4958,18 @@ DNS-over-HTTPS with IP:
     public function dnstt($update = false)
     {
         $c      = $this->getPacConf();
-        $pubkey = file_get_contents('/config/dnstt/server.pub');
+        $state  = $this->buildDnsttModule()->buildMenuState(
+            (string) ($c['dnsttDomain'] ?? ''),
+            (string) ($c['dnsttPassword'] ?? ''),
+            (string) ($c['domain'] ?? ''),
+            (string) $this->ip,
+        );
         $text[] = "dnstt";
-        if (!empty($c['dnsttDomain']) && !empty($c['dnsttPassword'])) {
-            $text[] = "<pre>set the NS record for {$c['dnsttDomain']}: tns.{$c['domain']}\nset A record for tns.{$c['domain']}: {$this->ip}</pre>";
-            $text[] = "account: <code>vpnbot:{$c['dnsttPassword']}</code>";
-            $text[] = "server name: <code>{$c['dnsttDomain']}</code>";
-            $text[] = "public key: <code>$pubkey</code>";
+        if ($state !== null) {
+            $text[] = "<pre>{$state['instructions']}</pre>";
+            $text[] = "account: <code>{$state['account']}</code>";
+            $text[] = "server name: <code>{$state['server_name']}</code>";
+            $text[] = "public key: <code>{$state['public_key']}</code>";
             $data[] = [
                 [
                     'text'          => $this->i18n('download pubkey'),
@@ -9495,6 +9494,50 @@ DNS-over-HTTPS with IP:
         return $module ??= new \VpnBot\Module\Hysteria\HysteriaModule(
             new \VpnBot\Module\Hysteria\HysteriaConfigStore(),
             $this->buildHysteriaRuntime()
+        );
+    }
+
+    public function buildDnsttRuntime(): \VpnBot\Module\Dnstt\DnsttRuntime
+    {
+        static $runtime;
+
+        return $runtime ??= new class ($this) implements \VpnBot\Module\Dnstt\DnsttRuntime {
+            public function __construct(
+                private readonly Bot $bot,
+            ) {
+            }
+
+            public function stop(): string
+            {
+                return $this->bot->ssh('pkill dnstt', 'dnstt');
+            }
+
+            public function ensureUserPassword(string $username, string $password): string
+            {
+                $this->bot->ssh("adduser -D -s /bin/sh $username", 'dnstt');
+
+                return $this->bot->ssh("echo '$username:$password' | chpasswd", 'dnstt');
+            }
+
+            public function generateKeyPair(): string
+            {
+                return $this->bot->ssh('dnstt-server -gen-key -privkey-file /dnstt/server.key -pubkey-file /dnstt/server.pub', 'dnstt');
+            }
+
+            public function start(string $domain): string
+            {
+                return $this->bot->ssh("dnstt-server -udp :53 -privkey-file /dnstt/server.key $domain 127.0.0.1:22", 'dnstt', false, '/logs/dnstt');
+            }
+        };
+    }
+
+    public function buildDnsttModule(): \VpnBot\Module\Dnstt\DnsttModule
+    {
+        static $module;
+
+        return $module ??= new \VpnBot\Module\Dnstt\DnsttModule(
+            new \VpnBot\Module\Dnstt\DnsttKeyStore(),
+            $this->buildDnsttRuntime()
         );
     }
 

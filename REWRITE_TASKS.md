@@ -722,6 +722,16 @@ Done:
 - `Bot` now delegates Hysteria restart/import flows and menu password reads through the extracted module instead of mutating YAML inline
 - added `tests/HysteriaModuleTest.php` for password sync, YAML persistence, and runtime start/stop coverage
 
+## Task 15.7 - DNSTT
+
+Status: done
+
+Done:
+
+- added `src/Module/Dnstt` with key-pair store, runtime interface, and module facade for restart orchestration, key import/export, and menu-state rendering
+- `Bot` now delegates DNSTT key import, restart/startup flow, download path, and rendered menu data through the extracted module instead of mutating files inline
+- added `tests/DnsttModuleTest.php` for key persistence, restart call order, and menu-state rendering coverage
+
 ## Task 16 - Cron Task Extraction
 
 Status: pending
