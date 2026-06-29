@@ -6,6 +6,7 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRepository.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/ConnectionFactory.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteFeatureRepository.php';
+    require_once dirname(__DIR__) . '/src/Telegram/FeatureCallbackGuard.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/MenuFilter.php';
 }
 
@@ -171,6 +172,10 @@ class Bot
 
     public function action()
     {
+        if (! $this->guardFeatureAccess()) {
+            return;
+        }
+
         switch (true) {
             // смена айпи сервера
             case preg_match('~^/menu$~', $this->input['message'], $m):
@@ -6315,28 +6320,106 @@ DNS-over-HTTPS with IP:
         static $resolved = false;
 
         if ($resolved) {
-            return $filter ?? new \VpnBot\Telegram\Menu\MenuFilter(new \VpnBot\Domain\Feature\FeatureRegistry());
+            return $filter ?? new \VpnBot\Telegram\Menu\MenuFilter($this->buildFeatureRegistry());
+        }
+
+        $resolved = true;
+
+        try {
+            $filter = new \VpnBot\Telegram\Menu\MenuFilter(
+                $this->buildFeatureRegistry(),
+                $this->buildFeatureRepository()
+            );
+
+            return $filter;
+        } catch (Throwable) {
+            $filter = new \VpnBot\Telegram\Menu\MenuFilter($this->buildFeatureRegistry());
+
+            return $filter;
+        }
+    }
+
+    public function guardFeatureAccess(): bool
+    {
+        $menuKey = is_string($this->input['callback']) && $this->input['callback'] !== ''
+            ? $this->input['callback']
+            : (is_string($this->input['message']) ? $this->input['message'] : null);
+
+        try {
+            if ($this->buildFeatureCallbackGuard()->isAllowed($menuKey)) {
+                return true;
+            }
+        } catch (Throwable) {
+            return true;
+        }
+
+        if (! empty($this->input['callback_id'])) {
+            $this->answer($this->input['callback_id'], 'Feature disabled');
+
+            return false;
+        }
+
+        $this->send($this->input['chat'], 'Feature disabled', $this->input['message_id']);
+
+        return false;
+    }
+
+    public function buildFeatureCallbackGuard(): \VpnBot\Telegram\FeatureCallbackGuard
+    {
+        static $guard;
+        static $resolved = false;
+
+        if ($resolved) {
+            return $guard ?? new \VpnBot\Telegram\FeatureCallbackGuard($this->buildFeatureRegistry());
+        }
+
+        $resolved = true;
+
+        try {
+            $guard = new \VpnBot\Telegram\FeatureCallbackGuard(
+                $this->buildFeatureRegistry(),
+                $this->buildFeatureRepository()
+            );
+
+            return $guard;
+        } catch (Throwable) {
+            $guard = new \VpnBot\Telegram\FeatureCallbackGuard($this->buildFeatureRegistry());
+
+            return $guard;
+        }
+    }
+
+    public function buildFeatureRegistry(): \VpnBot\Domain\Feature\FeatureRegistry
+    {
+        static $registry;
+
+        return $registry ??= new \VpnBot\Domain\Feature\FeatureRegistry();
+    }
+
+    public function buildFeatureRepository(): ?\VpnBot\Domain\Feature\FeatureRepository
+    {
+        static $repository;
+        static $resolved = false;
+
+        if ($resolved) {
+            return $repository;
         }
 
         $resolved = true;
 
         try {
             if (! file_exists('/data/vpnbot.sqlite')) {
-                $filter = new \VpnBot\Telegram\Menu\MenuFilter(new \VpnBot\Domain\Feature\FeatureRegistry());
-
-                return $filter;
+                return $repository = null;
             }
 
-            $registry = new \VpnBot\Domain\Feature\FeatureRegistry();
             $connection = (new \VpnBot\Infrastructure\Database\ConnectionFactory())->create('/data/vpnbot.sqlite');
-            $repository = new \VpnBot\Infrastructure\Database\SqliteFeatureRepository($connection, $registry);
-            $filter = new \VpnBot\Telegram\Menu\MenuFilter($registry, $repository);
 
-            return $filter;
+            return $repository = new \VpnBot\Infrastructure\Database\SqliteFeatureRepository(
+                $connection,
+                $this->buildFeatureRegistry()
+            );
         } catch (Throwable) {
-            $filter = new \VpnBot\Telegram\Menu\MenuFilter(new \VpnBot\Domain\Feature\FeatureRegistry());
-
-            return $filter;
+            return $repository = null;
         }
     }
 

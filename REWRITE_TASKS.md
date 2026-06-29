@@ -330,7 +330,13 @@ Done:
 
 ## Task 08 - Callback Guard
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Telegram/FeatureCallbackGuard.php` to map callback/message commands to features and block disabled ones
+- added an early guard in `Bot::action()` with legacy fallback on DB/repository errors and callback/message `Feature disabled` responses
+- added `tests/FeatureCallbackGuardTest.php` covering blocked `/xray` and allowed `/menu config` and `/restart`
 
 Цель: запретить выполнение callback для disabled feature.
 
