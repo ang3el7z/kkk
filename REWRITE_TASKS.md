@@ -521,7 +521,13 @@ Done:
 
 ## Task 13 - WireGuard Module Extraction
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Module/WireGuard` with `WireGuardConfigCodec`, `WireGuardModule`, `LegacyWireGuardClientStore`, and `WireGuardRuntime`
+- moved WireGuard pure parse/render/name-resolution logic and legacy client file access behind the new module facade
+- `Bot` now delegates `readConfig`, `readStatus`, `getName`, `saveClient`, `saveClients`, and `restartWG` through the module; added `tests/WireGuardConfigCodecTest.php`
 
 Цель: первый большой модульный вынос на примере WireGuard.
 

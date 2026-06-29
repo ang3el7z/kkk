@@ -12,6 +12,10 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/ConnectionFactory.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteFeatureRepository.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Storage/LegacyPacSettingsRepository.php';
+    require_once dirname(__DIR__) . '/src/Module/WireGuard/LegacyWireGuardClientStore.php';
+    require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardConfigCodec.php';
+    require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardModule.php';
+    require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardRuntime.php';
     require_once dirname(__DIR__) . '/src/Telegram/FeatureCallbackGuard.php';
     require_once dirname(__DIR__) . '/src/Telegram/Router.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/ContainerManagerMenuBuilder.php';
@@ -1953,7 +1957,7 @@ class Bot
 
     public function readClients(): array
     {
-        return json_decode(file_get_contents($this->getInstanceWG(1) ? $this->clients1 : $this->clients), true) ?: [];
+        return $this->buildWireGuardModule()->readClients();
     }
 
     public function export()
@@ -9497,6 +9501,52 @@ DNS-over-HTTPS with IP:
         return $repository ??= new \VpnBot\Infrastructure\Storage\LegacyPacSettingsRepository($this->pac);
     }
 
+    public function buildWireGuardModule(): \VpnBot\Module\WireGuard\WireGuardModule
+    {
+        $service = $this->getInstanceWG();
+        static $modules = [];
+
+        if (isset($modules[$service])) {
+            return $modules[$service];
+        }
+
+        $runtime = new class ($this) implements \VpnBot\Module\WireGuard\WireGuardRuntime {
+            public function __construct(
+                private readonly Bot $bot,
+            ) {
+            }
+
+            public function readConfig(string $service): string
+            {
+                return $this->bot->ssh('cat /etc/wireguard/wg0.conf', $service);
+            }
+
+            public function readStatus(string $service, string $binary): string
+            {
+                return $this->bot->ssh($binary, $service);
+            }
+
+            public function applyConfig(string $service, string $downBinary, string $upBinary, string $config): bool
+            {
+                $this->bot->ssh("echo '$config' > /etc/wireguard/wg0.conf", $service);
+                $this->bot->ssh("{$downBinary}-quick down wg0", $service);
+                $this->bot->ssh("{$upBinary}-quick up wg0", $service);
+
+                return true;
+            }
+        };
+
+        $store = new \VpnBot\Module\WireGuard\LegacyWireGuardClientStore(
+            $this->getInstanceWG(1) ? $this->clients1 : $this->clients
+        );
+
+        return $modules[$service] = new \VpnBot\Module\WireGuard\WireGuardModule(
+            new \VpnBot\Module\WireGuard\WireGuardConfigCodec(),
+            $runtime,
+            $store,
+        );
+    }
+
     public function dispatchRouter(): bool
     {
         $route = $this->buildRouter()->match([
@@ -10141,33 +10191,7 @@ DNS-over-HTTPS with IP:
 
     public function readConfig()
     {
-        $r = $this->ssh('cat /etc/wireguard/wg0.conf', $this->getInstanceWG());
-        $r = explode(PHP_EOL, $r);
-        $r = array_filter($r);
-        $i = 0;
-        foreach ($r as $k => $v) {
-            if (preg_match('~\[(.+)\]~', $v, $m)) {
-                $i++;
-                if ($m[1] == 'Interface') {
-                    $data[$i]['type'] = 'interface';
-                } else {
-                    $data[$i]['type'] = 'peer';
-                }
-            } else {
-                $t = explode('=', $v, 2);
-                $data[$i][trim($t[0])] = trim($t[1]);
-            }
-        }
-        foreach ($data as $v) {
-            $type = $v['type'];
-            unset($v['type']);
-            if ($type == 'interface') {
-                $d['interface'] = $v;
-            } else {
-                $d['peers'][] = $v;
-            }
-        }
-        return $d;
+        return $this->buildWireGuardModule()->readConfig($this->getInstanceWG());
     }
 
     public function nginxGetTypeCert()
@@ -10179,44 +10203,12 @@ DNS-over-HTTPS with IP:
 
     public function readStatus()
     {
-        $r = $this->ssh($this->getWGType(), $this->getInstanceWG());
-        $r = explode(PHP_EOL, $r);
-        $r = array_filter($r);
-        $i = 0;
-        foreach ($r as $k => $v) {
-            if (preg_match('~^(interface|peer):~', $v, $m)) {
-                $i++;
-                if ($m[1] == 'interface') {
-                    $data[$i]['type'] = 'interface';
-                } else {
-                    $data[$i]['type'] = 'peer';
-                }
-            }
-            $t = explode(':', $v, 2);
-            $data[$i][trim($t[0])] = trim($t[1]);
-        }
-        foreach ($data as $v) {
-            $type = $v['type'];
-            unset($v['type']);
-            if ($type == 'interface') {
-                $d['interface'] = $v;
-            } else {
-                $d['peers'][] = $v;
-            }
-        }
-        return $d;
+        return $this->buildWireGuardModule()->readStatus($this->getInstanceWG(), $this->getWGType());
     }
 
     public function getName(array $a): string
     {
-        $name = '';
-        foreach ($a as $k => $v) {
-            if (preg_match('~^#.*name$~', $k)) {
-                $name = $v;
-            }
-        }
-        $name = $name ?: $a['AllowedIPs'] ?: $a['Address'];
-        return $name;
+        return $this->buildWireGuardModule()->resolveClientName($a);
     }
 
     public function createConfig($data)
@@ -10247,7 +10239,10 @@ DNS-over-HTTPS with IP:
                 }
             }
         }
-        return implode(PHP_EOL, $conf);
+        return $this->buildWireGuardModule()->renderConfig([
+            'interface' => $data['interface'],
+            'peers' => $data['peers'] ?? [],
+        ]);
     }
 
     public function presharedKey()
@@ -10376,9 +10371,7 @@ DNS-over-HTTPS with IP:
 
     public function saveClient(array $client)
     {
-        $r = array_merge($this->readClients(), [$client]);
-        $this->saveClients($r);
-        return count($r) - 1;
+        return $this->buildWireGuardModule()->saveClient($client);
     }
 
     public function syncPortClients()
@@ -10398,7 +10391,7 @@ DNS-over-HTTPS with IP:
         foreach ($clients as $k => $v) {
             $clients[$k]['peers'][0]['Endpoint'] = $domain;
         }
-        file_put_contents($this->getInstanceWG(1) ? $this->clients1 : $this->clients, json_encode($clients, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $this->buildWireGuardModule()->saveClients($clients);
     }
 
     public function getWGType($revert = 0)
@@ -10409,10 +10402,12 @@ DNS-over-HTTPS with IP:
 
     public function restartWG($conf_str, $switch = false)
     {
-        $this->ssh("echo '$conf_str' > /etc/wireguard/wg0.conf", $this->getInstanceWG());
-        $this->ssh("{$this->getWGType((int) $switch)}-quick down wg0", $this->getInstanceWG());
-        $this->ssh("{$this->getWGType()}-quick up wg0", $this->getInstanceWG());
-        return true;
+        return $this->buildWireGuardModule()->restart(
+            $this->getInstanceWG(),
+            $this->getWGType((int) $switch),
+            $this->getWGType(),
+            $conf_str,
+        );
     }
 
     public function autoupdate()
