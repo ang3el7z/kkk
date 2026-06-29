@@ -7,9 +7,11 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureDefinition.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRegistry.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRepository.php';
+    require_once dirname(__DIR__) . '/src/Domain/Settings/SettingsRepository.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Compose/ComposeOverrideWriter.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/ConnectionFactory.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteFeatureRepository.php';
+    require_once dirname(__DIR__) . '/src/Infrastructure/Storage/LegacyPacSettingsRepository.php';
     require_once dirname(__DIR__) . '/src/Telegram/FeatureCallbackGuard.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/ContainerManagerMenuBuilder.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/MenuFilter.php';
@@ -2650,12 +2652,14 @@ class Bot
 
     public function getPacConf()
     {
-        return json_decode(file_get_contents($this->pac), true);
+        return $this->buildPacSettingsRepository()->all();
     }
 
     public function setPacConf(array $conf)
     {
-        return file_put_contents($this->pac, json_encode($conf, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $this->buildPacSettingsRepository()->replaceAll($conf);
+
+        return true;
     }
 
     public function domain()
@@ -9479,6 +9483,13 @@ DNS-over-HTTPS with IP:
             'dnstt' => $this->i18n('DNSTT'),
             default => $definition->id(),
         };
+    }
+
+    public function buildPacSettingsRepository(): \VpnBot\Domain\Settings\SettingsRepository
+    {
+        static $repository;
+
+        return $repository ??= new \VpnBot\Infrastructure\Storage\LegacyPacSettingsRepository($this->pac);
     }
 
     public function ports()

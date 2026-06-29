@@ -451,7 +451,13 @@ Done:
 
 ## Task 11 - Settings Repository And Pac Adapter
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Domain/Settings/SettingsRepository.php` plus `SqliteSettingsRepository` for SQLite-backed key/value settings
+- added `src/Infrastructure/Storage/LegacyPacSettingsRepository.php` as a temporary `pac.json` adapter that preserves the legacy file format
+- `Bot::getPacConf()` and `Bot::setPacConf()` now proxy through the adapter, and tests cover SQLite read/write plus legacy JSON format preservation
 
 Цель: заменить прямое чтение `/config/pac.json` в новых компонентах.
 
