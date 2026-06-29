@@ -661,6 +661,17 @@ Status: pending
 - Unit tests for module.
 - No full stack start.
 
+## Task 15.1 - PAC/subscription
+
+Status: done
+
+Done:
+
+- added `src/Module/Pac` with template store and subscription helper module for template selection, default handling, and Xray client template binding
+- moved PAC template CRUD/default flows in `Bot` to the new module while keeping HTTP/Telegram glue in place
+- `sub()`/`subscription()` now reuse extracted client lookup and template resolution instead of duplicating PAC/Xray template logic
+- added `tests/PacTemplateStoreTest.php` and `tests/SubscriptionModuleTest.php`
+
 ## Task 16 - Cron Task Extraction
 
 Status: pending

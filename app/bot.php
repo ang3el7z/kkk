@@ -21,6 +21,8 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardConfigCodec.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardModule.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Pac/PacTemplateStore.php';
+    require_once dirname(__DIR__) . '/src/Module/Pac/SubscriptionModule.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/SqliteXrayStateRepository.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayConfigCodec.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayModule.php';
@@ -6792,23 +6794,25 @@ DNS-over-HTTPS with IP:
 
     public function saveTemplate($name, $type, $json)
     {
-        if (json_decode($json, true) === false) {
+        $decoded = json_decode($json, true);
+
+        if (! is_array($decoded)) {
             return [
                 'status'  => false,
                 'message' => 'wrong format',
             ];
         }
-        $pac = $this->getPacConf();
+
         switch ($name) {
             case 'origin':
-                file_put_contents("/config/$type.json", json_encode(json_decode($json, true), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                $this->buildPacTemplateStore()->saveOrigin($type, $decoded);
                 break;
 
             default:
-                $pac["{$type}templates"][$name] = json_decode($json, true);
+                $this->buildPacTemplateStore()->saveTemplate($type, $name, $decoded);
                 break;
         }
-        $this->setPacConf($pac);
+
         return [
             'status' => true,
         ];
@@ -6816,42 +6820,52 @@ DNS-over-HTTPS with IP:
 
     public function delTemplate($type, $name)
     {
-        $pac = $this->getPacConf();
-        unset($pac["{$type}templates"][base64_decode($name)]);
-        $this->setPacConf($pac);
+        $decoded = base64_decode($name, true);
+
+        if ($decoded !== false) {
+            $this->buildPacTemplateStore()->deleteTemplate($type, $decoded);
+        }
+
         $this->templates($type);
     }
 
     public function copyTemplate($name, $type)
     {
-        $pac  = $this->getPacConf();
-        $pac["{$type}templates"][$name] = json_decode(file_get_contents("/config/$type.json"), true);
-        $this->setPacConf($pac);
+        $this->buildPacTemplateStore()->saveTemplate($type, $name, $this->buildPacTemplateStore()->loadOrigin($type));
         $this->templates($type);
     }
 
     public function downloadOrigin($type)
     {
-        $f = new \CURLFile("/config/$type.json", 'application/json', 'origin.json');
+        $f = new \CURLStringFile(
+            json_encode($this->buildPacTemplateStore()->loadOrigin($type), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'origin.json',
+            'application/json'
+        );
         $this->sendFile($this->input['chat'], $f);
     }
 
     public function downloadTemplate($type, $name)
     {
-        $pac = $this->getPacConf();
-        $f = new \CURLStringFile(json_encode($pac["{$type}templates"][base64_decode($name)], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), base64_decode($name) . '.json', 'application/json');
+        $decoded = base64_decode($name, true);
+        $templates = $this->buildPacTemplateStore()->allTemplates($type);
+        $template = $decoded !== false ? ($templates[$decoded] ?? null) : null;
+
+        if (! is_array($template)) {
+            return;
+        }
+
+        $f = new \CURLStringFile(
+            json_encode($template, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            $decoded . '.json',
+            'application/json'
+        );
         $this->sendFile($this->input['chat'], $f);
     }
 
     public function defaultTemplate($type, $name)
     {
-        $pac = $this->getPacConf();
-        if (!empty($name)) {
-            $pac["default{$type}template"] = $name;
-        } else {
-            unset($pac["default{$type}template"]);
-        }
-        $this->setPacConf($pac);
+        $this->buildPacTemplateStore()->setDefaultTemplate($type, !empty($name) ? $name : null);
         $this->templates($type);
     }
 
@@ -6881,7 +6895,8 @@ DNS-over-HTTPS with IP:
             <code>~server_name~</code>
             <code>~ip~</code>
             TEXT;
-        $templates = $pac["{$type}templates"];
+        $templates = $this->buildPacTemplateStore()->allTemplates($type);
+        $defaultTemplate = $this->buildPacTemplateStore()->defaultTemplateToken($type);
 
         $data[] = [
             [
@@ -6903,7 +6918,7 @@ DNS-over-HTTPS with IP:
                 'callback_data' => "/templateCopy $type",
             ],
             [
-                'text'          => $this->i18n($pac["default{$type}template"] && !empty($pac["{$type}templates"][base64_decode($pac["default{$type}template"])]) ? 'off' : 'on'),
+                'text'          => $this->i18n($defaultTemplate && !empty($templates[base64_decode($defaultTemplate, true) ?: '']) ? 'off' : 'on'),
                 'callback_data' => "/defaultTemplate $type",
             ],
         ];
@@ -6922,7 +6937,7 @@ DNS-over-HTTPS with IP:
                     'callback_data' => "/delTemplate $type " . base64_encode($k),
                 ],
                 [
-                    'text'          => $this->i18n($pac["default{$type}template"] == base64_encode($k) ? 'on' : 'off'),
+                    'text'          => $this->i18n($defaultTemplate == base64_encode($k) ? 'on' : 'off'),
                     'callback_data' => "/defaultTemplate $type " . base64_encode($k),
                 ],
             ];
@@ -7508,22 +7523,21 @@ DNS-over-HTTPS with IP:
     public function choiceTemplate($arg)
     {
         $arg = explode('_', $arg);
-        $c   = $this->getXray();
-        if (!empty($arg[2])) {
-            $c['inbounds'][0]['settings']['clients'][$arg[1]]["{$arg[0]}template"] = $arg[2];
-        } else {
-            unset($c['inbounds'][0]['settings']['clients'][$arg[1]]["{$arg[0]}template"]);
-        }
-        file_put_contents('/config/xray.json', json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $c = $this->buildSubscriptionModule()->updateClientTemplate(
+            $this->getXray(),
+            (string) $arg[0],
+            (int) $arg[1],
+            !empty($arg[2]) ? (string) $arg[2] : null
+        );
+        $this->restartXray($c, true);
         $this->userXr($arg[1]);
     }
 
     public function templateUser($type, $i)
     {
         $c         = $this->getXray();
-        $pac       = $this->getPacConf();
         $text[]    = "Menu -> " . $this->i18n('xray') . " -> {$c['inbounds'][0]['settings']['clients'][$i]['email']}\n";
-        $templates = $pac["{$type}templates"];
+        $templates = $this->buildPacTemplateStore()->allTemplates($type);
         $data[]    = [
             [
                 'text'          => 'default',
@@ -7914,20 +7928,13 @@ DNS-over-HTTPS with IP:
         $domain = $_GET['cdn'] ?: ($_SERVER['SERVER_NAME'] ?: $this->getDomain($pac['transport'] != 'Reality'));
         $scheme = empty($this->nginxGetTypeCert()) ? 'http' : 'https';
         $hash   = $this->getHashBot();
-        $flag   = true;
-        $client = null;
-        foreach ($xr['inbounds'][0]['settings']['clients'] as $k => $v) {
-            if ($v['id'] == $_GET['id']) {
-                if (empty($v['off'])) {
-                    $flag = false;
-                }
-                $uid    = $v['id'];
-                $email  = $v['email'];
-                $expire = $v['time'];
-                $client = $v;
-                break;
-            }
-        }
+        $match  = $this->buildSubscriptionModule()->findClientByUuid($xr, (string) $_GET['id']);
+        $k      = $match['index'];
+        $client = $match['client'];
+        $flag   = ! empty($client['off']);
+        $uid    = $client['id'];
+        $email  = $client['email'];
+        $expire = $client['time'];
         if (!$flag && !$this->processHwidRequest($client)) {
             exit;
         }
@@ -7965,37 +7972,20 @@ DNS-over-HTTPS with IP:
 
     public function subscription($return = false)
     {
-        switch ($_GET['t']) {
-            case 's':
-                $type = 'v2ray';
-                break;
-            case 'si':
-                $type = 'sing';
-                break;
-            case 'cl':
-                $type = 'clash';
-                break;
-        }
+        $type = $this->buildSubscriptionModule()->originType((string) $_GET['t']);
         $pac    = $this->getPacConf();
         $domain = $_GET['cdn'] ?: ($_SERVER['SERVER_NAME'] ?: $this->getDomain($pac['transport'] != 'Reality'));
         $xr     = $this->getXray();
         $scheme = empty($this->nginxGetTypeCert()) ? 'http' : 'https';
         $hash   = $this->getHashBot();
 
-        $flag = true;
-        $client = null;
-        foreach ($xr['inbounds'][0]['settings']['clients'] as $k => $v) {
-            if ($v['id'] == $_GET['s']) {
-                if (empty($v['off'])) {
-                    $flag = false;
-                }
-                $template = base64_decode($v["{$type}template"]);
-                $uid      = $v['id'];
-                $email    = $v['email'];
-                $client   = $v;
-                break;
-            }
-        }
+        $match = $this->buildSubscriptionModule()->findClientByUuid($xr, (string) $_GET['s']);
+        $k = $match['index'];
+        $client = $match['client'];
+        $flag = ! empty($client['off']);
+        $uid = $client['id'];
+        $email = $client['email'];
+
         if ($flag) {
             header('500', true, 500);
             exit;
@@ -8057,21 +8047,7 @@ DNS-over-HTTPS with IP:
                     exit;
             }
         }
-        switch (true) {
-            case !empty($template) && $template == 'origin':
-            case empty($template) && empty($pac["default{$type}template"]):
-            case empty($template) && empty($pac["{$type}templates"][base64_decode($pac["default{$type}template"])]):
-            case !empty($template) && empty($pac["{$type}templates"][$template]):
-                $c = json_decode(file_get_contents("/config/{$type}.json"), true);
-                break;
-            case !empty($template):
-                $c = $pac["{$type}templates"][$template];
-                break;
-
-            default:
-                $c = $pac["{$type}templates"][base64_decode($pac["default{$type}template"])];
-                break;
-        }
+        $c = $this->buildSubscriptionModule()->resolveTemplateForClient((string) $_GET['t'], $client);
 
         $outbound = $pac['outbound'] ?: 'proxy';
         $c = json_decode($this->replaceTags(json_encode($c), [
@@ -9414,6 +9390,20 @@ DNS-over-HTTPS with IP:
         static $repository;
 
         return $repository ??= new \VpnBot\Infrastructure\Storage\LegacyPacSettingsRepository($this->pac);
+    }
+
+    public function buildPacTemplateStore(): \VpnBot\Module\Pac\PacTemplateStore
+    {
+        static $store;
+
+        return $store ??= new \VpnBot\Module\Pac\PacTemplateStore($this->buildPacSettingsRepository());
+    }
+
+    public function buildSubscriptionModule(): \VpnBot\Module\Pac\SubscriptionModule
+    {
+        static $module;
+
+        return $module ??= new \VpnBot\Module\Pac\SubscriptionModule($this->buildPacTemplateStore());
     }
 
     public function buildSqliteSettingsRepository(): \VpnBot\Domain\Settings\SettingsRepository
