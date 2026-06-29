@@ -30,6 +30,9 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/OpenConnect/OpenConnectConfigStore.php';
     require_once dirname(__DIR__) . '/src/Module/OpenConnect/OpenConnectModule.php';
     require_once dirname(__DIR__) . '/src/Module/OpenConnect/OpenConnectRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/NaiveProxy/CaddyfileStore.php';
+    require_once dirname(__DIR__) . '/src/Module/NaiveProxy/NaiveProxyModule.php';
+    require_once dirname(__DIR__) . '/src/Module/NaiveProxy/NaiveProxyRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/SqliteXrayStateRepository.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayConfigCodec.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayModule.php';
@@ -1236,13 +1239,16 @@ class Bot
     public function restartNaive()
     {
         $pac = $this->getPacConf();
-        $this->ssh('pkill caddy', 'np');
-        $c = file_get_contents('/config/Caddyfile');
-        $t = preg_replace('~^(\t+)?basic_auth[^\n]+~sm', '$1basic_auth ' . ($pac['naive']['user'] ?? '_') . ' ' . ($pac['naive']['pass'] ?? '__'), $c);
-        file_put_contents('/config/Caddyfile', $t);
-        if (!empty($pac['naive']['pass']) && !empty($this->getHashSubdomain('np'))) {
-            $this->ssh('caddy run -c /config/Caddyfile', 'np', false);
-        }
+        $config = $this->buildNaiveProxyModule()->loadConfig();
+        $config = $this->buildNaiveProxyModule()->updateBasicAuth(
+            $config,
+            (string) ($pac['naive']['user'] ?? ''),
+            (string) ($pac['naive']['pass'] ?? '')
+        );
+        $this->buildNaiveProxyModule()->saveAndRestart(
+            $config,
+            !empty($pac['naive']['pass']) && !empty($this->getHashSubdomain('np'))
+        );
     }
 
     public function restartHysteria()
@@ -6307,9 +6313,10 @@ DNS-over-HTTPS with IP:
     {
         $pac    = $this->getPacConf();
         $domain = $this->getDomain();
+        $credentials = $this->buildNaiveProxyModule()->parseCredentials($this->buildNaiveProxyModule()->loadConfig());
         $text[] = "Menu -> NaiveProxy";
         $np     = $this->getHashSubdomain('np');
-        $text[] = "<code>https://{$pac['naive']['user']}:{$pac['naive']['pass']}@$np.$domain</code>";
+        $text[] = "<code>https://{$credentials['user']}:{$credentials['password']}@$np.$domain</code>";
         $data[] = [
             [
                 'text'          => $this->i18n('change subdomain'),
@@ -9426,6 +9433,38 @@ DNS-over-HTTPS with IP:
         return $module ??= new \VpnBot\Module\OpenConnect\OpenConnectModule(
             new \VpnBot\Module\OpenConnect\OpenConnectConfigStore(),
             $this->buildOpenConnectRuntime()
+        );
+    }
+
+    public function buildNaiveProxyRuntime(): \VpnBot\Module\NaiveProxy\NaiveProxyRuntime
+    {
+        static $runtime;
+
+        return $runtime ??= new class ($this) implements \VpnBot\Module\NaiveProxy\NaiveProxyRuntime {
+            public function __construct(
+                private readonly Bot $bot,
+            ) {
+            }
+
+            public function start(): string
+            {
+                return $this->bot->ssh('caddy run -c /config/Caddyfile', 'np', false);
+            }
+
+            public function stop(): string
+            {
+                return $this->bot->ssh('pkill caddy', 'np');
+            }
+        };
+    }
+
+    public function buildNaiveProxyModule(): \VpnBot\Module\NaiveProxy\NaiveProxyModule
+    {
+        static $module;
+
+        return $module ??= new \VpnBot\Module\NaiveProxy\NaiveProxyModule(
+            new \VpnBot\Module\NaiveProxy\CaddyfileStore(),
+            $this->buildNaiveProxyRuntime()
         );
     }
 

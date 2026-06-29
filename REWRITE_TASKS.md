@@ -692,6 +692,16 @@ Done:
 - `Bot` now delegates OpenConnect restart/config changes, menu state parsing, and user add/delete/password flows through the new module
 - added `tests/OpenConnectModuleTest.php` for config rewrites, route rendering, and runtime call coverage
 
+## Task 15.4 - NaiveProxy
+
+Status: done
+
+Done:
+
+- added `src/Module/NaiveProxy` with Caddyfile store, runtime interface, and module facade for credential parsing, basic_auth rewrites, and restart orchestration
+- `Bot` now delegates NaiveProxy restart and menu credential reads through the extracted module instead of mutating `Caddyfile` inline
+- added `tests/NaiveProxyModuleTest.php` for credential rewrite, parsing, and runtime start/stop coverage
+
 ## Task 16 - Cron Task Extraction
 
 Status: pending
