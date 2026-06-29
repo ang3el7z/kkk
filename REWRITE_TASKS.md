@@ -174,7 +174,13 @@ Done:
 
 ## Task 04 - Feature Repository
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Domain/Feature/FeatureRepository.php` and `src/Infrastructure/Database/SqliteFeatureRepository.php`
+- repository seeds `features` from `FeatureRegistry` defaults when table is empty
+- added `tests/SqliteFeatureRepositoryTest.php` for migration + seed + toggle + core-disable guard
 
 Цель: хранить состояние feature в SQLite.
 
