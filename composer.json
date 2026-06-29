@@ -1,0 +1,10 @@
+{
+    "name": "vpnbot/vpnbot",
+    "description": "VPNBot rewrite bootstrap skeleton",
+    "type": "project",
+    "autoload": {
+        "psr-4": {
+            "VpnBot\\": "src/"
+        }
+    }
+}

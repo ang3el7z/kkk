@@ -225,6 +225,11 @@ function download($index)
 }
 
 ini_set('memory_limit', '256M');
+$autoload = dirname(__DIR__) . '/vendor/autoload.php';
+if (file_exists($autoload)) {
+    require $autoload;
+}
+
 require __DIR__ . '/timezone.php';
 // require __DIR__ . '/debug.php';
 require __DIR__ . '/bot.php';

@@ -1,0 +1,629 @@
+# Rewrite Tasks
+
+Этот файл - очередь задач для ИИ-агента. Выполнять строго по порядку. Каждая задача должна оставлять проект в рабочем состоянии.
+
+## Общие правила
+
+- Рабочая ветка: `master`.
+- Base: `upstream/dev`, commit `6b42889b2a468abe6cd13747d748acabf55d176e`.
+- Не запускать весь стек: не выполнять `make u`, `make r`, `docker compose up`.
+- Можно запускать статические проверки: `php -l`, unit tests, dry-run скрипты, `docker compose config` без старта контейнеров.
+- Не удалять старый `Bot` до задач, где это явно указано.
+- Каждый шаг должен быть маленьким: одна архитектурная цель, один понятный diff.
+- Если задача требует изменить runtime behavior, сначала добавить тест/проверку или простую точку rollback.
+- После каждой задачи обновлять этот файл: отметить статус и коротко что сделано.
+- После успешной проверки задачи сделать отдельный commit и push.
+- Один task = один commit. Не смешивать несколько задач в одном commit.
+- Если проверка не прошла или есть blocker, не коммитить и не пушить.
+- Перед commit выполнить `git status` и убедиться, что в commit попадают только файлы текущей задачи.
+- Commit message писать в формате Conventional Commits, например `chore: add composer autoload skeleton`.
+- Push делать в `origin master`, если пользователь не указал другую ветку.
+
+## Агентский шаблон
+
+Давать агенту задачу в таком формате:
+
+```text
+Прочитай PROJECT_MAP.md, ARCHITECTURE_PLAN.md, MIGRATION_PLAN.md, REWRITE_TASKS.md.
+Выполни задачу N: <название>.
+Не запускай docker compose up/make u/make r.
+Сделай только описанный scope.
+После успешной проверки сделай commit и push в origin master.
+Если проверка не прошла, не коммить.
+В конце дай: changed files, verification, commit/push status, blockers.
+```
+
+## Task 01 - Composer Autoload Skeleton
+
+Status: done
+
+Done:
+
+- added `composer.json` with PSR-4 autoload `VpnBot\\ => src/`
+- added `src/Bootstrap/Container.php` and `src/Bootstrap/Paths.php`
+- entrypoints now load `vendor/autoload.php` only if it exists, so legacy startup still works without `composer install`
+
+Цель: добавить современную загрузку классов, не меняя поведение бота.
+
+Входные файлы:
+
+- `app/index.php`
+- `app/init.php`
+- `app/service.php`
+- `app/cron.php`
+- `app/updatepac.php`
+- `app/bot.php`
+
+Сделать:
+
+- Добавить `composer.json` с PSR-4 namespace `VpnBot\\` -> `src/`.
+- Добавить `src/Bootstrap/Container.php` с минимальным пустым контейнером.
+- Добавить `src/Bootstrap/Paths.php` для путей `/config`, `/data`, `/logs`, `/docker/compose`.
+- В entrypoints подключить `vendor/autoload.php`, если файл существует.
+- Не требовать `composer install` для старого запуска: если `vendor/autoload.php` нет, старый код должен работать.
+
+Проверка:
+
+- `php -l app/index.php`
+- `php -l app/init.php`
+- `php -l app/service.php`
+- `php -l app/cron.php`
+- `php -l app/updatepac.php`
+- `php -l src/Bootstrap/Container.php`
+- `php -l src/Bootstrap/Paths.php`
+
+Не делать:
+
+- Не переносить методы из `Bot`.
+- Не менять docker compose.
+- Не менять storage.
+
+## Task 02 - SQLite Foundation
+
+Status: pending
+
+Цель: подготовить SQLite как новый source of truth.
+
+Входные файлы:
+
+- `docker-compose.yml`
+- `ARCHITECTURE_PLAN.md`
+- `MIGRATION_PLAN.md`
+
+Сделать:
+
+- Добавить volume `data`.
+- Смонтировать `data:/data` минимум в `php` и `service`.
+- Добавить `src/Infrastructure/Database/ConnectionFactory.php`.
+- Добавить `src/Infrastructure/Database/Migrator.php`.
+- Добавить `database/migrations/001_initial.sql`.
+- Добавить `bin/migrate.php`.
+- Миграция должна создавать таблицы из `MIGRATION_PLAN.md`: `settings`, `admins`, `features`, `wireguard_instances`, `wireguard_clients`, `xray_users`, `xray_stats`, `openconnect_users`, `lists`, `reply_sessions`, `audit_log`.
+
+Проверка:
+
+- `php -l bin/migrate.php`
+- `php -l src/Infrastructure/Database/ConnectionFactory.php`
+- `php -l src/Infrastructure/Database/Migrator.php`
+- `php bin/migrate.php --db ./tmp/vpnbot-test.sqlite`
+- Проверить, что `tmp/vpnbot-test.sqlite` создан и таблицы есть.
+
+Не делать:
+
+- Не подключать новый DB runtime к `Bot`.
+- Не удалять JSON чтение.
+
+## Task 03 - Feature Registry
+
+Status: pending
+
+Цель: описать все включаемые/отключаемые возможности в одном месте.
+
+Входные файлы:
+
+- `docker-compose.yml`
+- `PROJECT_MAP.md`
+- `ARCHITECTURE_PLAN.md`
+
+Сделать:
+
+- Добавить `src/Domain/Feature/FeatureDefinition.php`.
+- Добавить `src/Domain/Feature/FeatureRegistry.php`.
+- Описать core services: `php`, `service`, `ng`, `up`; `toggleable=false`.
+- Описать features:
+  - `wireguard` -> `wg`
+  - `wireguard_1` -> `wg1`
+  - `xray` -> `xr`
+  - `openconnect` -> `oc`
+  - `naive` -> `np`
+  - `warp` -> `wp`
+  - `proxy` -> `proxy`
+  - `shadowsocks` -> `ss`
+  - `dnstt` -> `dnstt`
+  - `hysteria` -> `hy`
+  - `adguard` -> `ad`
+  - `mtproto` -> `tg`
+- Все feature `enabled_by_default=true`.
+- Добавить метод поиска feature по service и по menu key.
+
+Проверка:
+
+- `php -l src/Domain/Feature/FeatureDefinition.php`
+- `php -l src/Domain/Feature/FeatureRegistry.php`
+- Добавить простой test script или PHPUnit test, который проверяет:
+  - core нельзя toggle;
+  - все services из списка найдены;
+  - все features enabled by default.
+
+Не делать:
+
+- Не менять Telegram меню.
+- Не останавливать контейнеры.
+
+## Task 04 - Feature Repository
+
+Status: pending
+
+Цель: хранить состояние feature в SQLite.
+
+Входные файлы:
+
+- Task 02 DB classes.
+- Task 03 Feature classes.
+
+Сделать:
+
+- Добавить `src/Domain/Feature/FeatureRepository.php` interface.
+- Добавить `src/Infrastructure/Database/SqliteFeatureRepository.php`.
+- Добавить seed: если таблица `features` пустая, заполнить из `FeatureRegistry` с `enabled_by_default`.
+- Добавить методы:
+  - `isEnabled(string $featureId): bool`
+  - `setEnabled(string $featureId, bool $enabled): void`
+  - `all(): array`
+- Запретить выключение core на уровне repository/service.
+
+Проверка:
+
+- Unit/dry-run test на temp SQLite:
+  - migration;
+  - seed;
+  - disable `xray`;
+  - попытка disable `php` дает exception.
+
+Не делать:
+
+- Не связывать с `Bot::menu`.
+
+## Task 05 - Compose Manager
+
+Status: pending
+
+Цель: заменить ad hoc YAML-правки на генератор compose override.
+
+Входные файлы:
+
+- `docker-compose.yml`
+- Task 03/04 feature classes.
+- текущие методы `Bot::hidePort`, `Bot::setPort`, `Bot::ports`.
+
+Сделать:
+
+- Добавить `src/Infrastructure/Compose/ComposeOverrideWriter.php`.
+- Writer генерирует `docker-compose.override.yml` из feature state.
+- Disabled feature service должен не стартовать по умолчанию. Использовать compose profiles для disabled services или другой compose-native способ, который проходит `docker compose config`.
+- Сохранить текущую поддержку портов, которые меняются через настройки.
+- Не редактировать YAML regex-ами.
+- Добавить atomic write: write temp file -> rename.
+
+Проверка:
+
+- Dry-run генерации override в `tmp/docker-compose.override.yml`.
+- `docker compose -f docker-compose.yml -f tmp/docker-compose.override.yml config` без запуска контейнеров.
+- Проверить, что disabled `xray` скрывается из default startup semantics.
+
+Не делать:
+
+- Не менять `Bot::hidePort` пока; только добавить новый writer.
+- Не выполнять `docker compose up`.
+
+## Task 06 - Feature Manager
+
+Status: pending
+
+Цель: единый application service для enable/disable.
+
+Входные файлы:
+
+- Task 04 repository.
+- Task 05 compose writer.
+- Docker API wrapper in old `Bot::dockerApi`.
+
+Сделать:
+
+- Добавить `src/Application/Feature/FeatureManager.php`.
+- Методы:
+  - `enable(string $featureId): void`
+  - `disable(string $featureId): void`
+  - `list(): array`
+- При disable:
+  - update DB;
+  - regenerate compose override;
+  - call container stop/remove abstraction, but allow dry-run/noop adapter for tests.
+- При enable:
+  - update DB;
+  - regenerate compose override;
+  - call start abstraction, but no actual start in unit test.
+- Добавить `ContainerRuntime` interface и `NoopContainerRuntime`.
+
+Проверка:
+
+- Unit/dry-run test: disable/enable `xray`, verify DB + generated override + recorded runtime calls.
+
+Не делать:
+
+- Не подключать к Telegram UI.
+- Не запускать Docker реально.
+
+## Task 07 - Menu Button Filter
+
+Status: pending
+
+Цель: скрывать кнопки disabled features без полного переписывания меню.
+
+Входные файлы:
+
+- `app/bot.php`
+- Task 03/04 feature registry/repository.
+
+Сделать:
+
+- Добавить `src/Telegram/Menu/MenuFilter.php`.
+- Filter принимает Telegram inline keyboard array и удаляет buttons по `callback_data`/menu key, если feature disabled.
+- В `Bot::menu()` применить filter к main menu и protocol submenus минимально-инвазивно.
+- Если DB недоступна, fallback = все enabled, чтобы старый install не ломался.
+
+Проверка:
+
+- `php -l app/bot.php`
+- Unit/dry-run test: disabled `xray` удаляет `/xray`, disabled `adguard` удаляет `/menu adguard`.
+
+Не делать:
+
+- Не переписывать весь `Bot::menu`.
+- Не менять тексты.
+
+## Task 08 - Callback Guard
+
+Status: pending
+
+Цель: запретить выполнение callback для disabled feature.
+
+Входные файлы:
+
+- `app/bot.php`
+- Task 03 feature registry.
+
+Сделать:
+
+- Добавить `src/Telegram/FeatureCallbackGuard.php`.
+- Guard определяет feature по callback_data.
+- В начале `Bot::action()` проверить callback/message command.
+- Если disabled:
+  - answer callback: `Feature disabled`;
+  - не выполнять handler.
+- Fallback при DB error = старое поведение.
+
+Проверка:
+
+- `php -l app/bot.php`
+- Unit/dry-run: `/xray` blocked when `xray=false`, `/menu config` allowed, `/restart` allowed.
+
+Не делать:
+
+- Не менять routing structure целиком.
+
+## Task 09 - Container Manager Menu
+
+Status: pending
+
+Цель: добавить UI управления контейнерами.
+
+Входные файлы:
+
+- `app/bot.php`
+- `app/i18n.php`
+- Task 06 FeatureManager.
+
+Сделать:
+
+- Добавить пункт в `configMenu`: `Container manager`.
+- Добавить menu type/callback:
+  - `/menu containers`
+  - `/featureToggle <featureId>`
+- Экран показывает:
+  - core services locked;
+  - features enabled/disabled;
+  - кнопку toggle для toggleable.
+- Toggle вызывает `FeatureManager`.
+- После toggle обновляет это же меню.
+
+Проверка:
+
+- `php -l app/bot.php`
+- `php -l app/i18n.php`
+- Unit/dry-run для генерации menu array.
+
+Не делать:
+
+- Не запускать/останавливать реальные контейнеры в тестах.
+
+## Task 10 - Legacy Import Script V1
+
+Status: pending
+
+Цель: one-shot перенос старых данных в SQLite.
+
+Входные файлы:
+
+- `MIGRATION_PLAN.md`
+- `config/*.json`
+- `config/*.yaml`
+- `app/config.php`
+
+Сделать:
+
+- Добавить `bin/import-legacy.php`.
+- Добавить `src/Infrastructure/Legacy/LegacyImporter.php`.
+- Import:
+  - admins/token/debug from `app/config.php`;
+  - raw `pac.json` into `settings`;
+  - WG clients into `wireguard_clients`;
+  - Xray users + raw config into `xray_users/settings`;
+  - Xray stats into `xray_stats`;
+  - feature defaults from registry.
+- Missing optional files allowed.
+- Import report to stdout and optional `--report=/logs/import-legacy.log`.
+
+Проверка:
+
+- `php -l bin/import-legacy.php`
+- Dry-run against repo `config/` and temp DB.
+- Confirm row counts printed.
+
+Не делать:
+
+- Не mutate `/config`.
+- Не wire runtime to importer.
+
+## Task 11 - Settings Repository And Pac Adapter
+
+Status: pending
+
+Цель: заменить прямое чтение `/config/pac.json` в новых компонентах.
+
+Входные файлы:
+
+- `Bot::getPacConf`
+- `Bot::setPacConf`
+- Task 02 DB.
+
+Сделать:
+
+- Добавить `SettingsRepository` interface.
+- Добавить `SqliteSettingsRepository`.
+- Добавить временный adapter для старого `pac.json`, только пока `Bot` не распилен.
+- Новые классы используют только repository interface.
+
+Проверка:
+
+- Unit/dry-run: read/write setting в SQLite.
+- Legacy adapter сохраняет формат `pac.json`.
+
+Не делать:
+
+- Не менять все вызовы `getPacConf` сразу.
+
+## Task 12 - Telegram Router Extraction
+
+Status: pending
+
+Цель: начать вынос `Bot::action()` без большого риска.
+
+Входные файлы:
+
+- `app/bot.php`
+
+Сделать:
+
+- Добавить `src/Telegram/Router.php`.
+- Добавить `Route` definitions для 5-10 простых callbacks first:
+  - `/menu`
+  - `/menu config`
+  - `/menu containers`
+  - `/featureToggle <id>`
+  - `/ports`
+- `Bot::action()` сначала спрашивает новый router; если route не найден, old switch работает.
+
+Проверка:
+
+- `php -l app/bot.php`
+- Unit/dry-run route matching.
+
+Не делать:
+
+- Не переносить все 100+ cases за раз.
+
+## Task 13 - WireGuard Module Extraction
+
+Status: pending
+
+Цель: первый большой модульный вынос на примере WireGuard.
+
+Входные файлы:
+
+- WireGuard methods in `app/bot.php`: `readConfig`, `readStatus`, `createConfig`, `createPeer`, `saveClient`, `saveClients`, `restartWG`, WG menus.
+
+Сделать:
+
+- Добавить `src/Module/WireGuard`.
+- Вынести pure config parse/render first.
+- Вынести client repository access.
+- Оставить SSH/restart behind interface.
+- `Bot` вызывает module facade.
+
+Проверка:
+
+- Unit tests parse/render WG config.
+- `php -l` changed PHP.
+
+Не делать:
+
+- Не менять Xray/OpenConnect in same task.
+
+## Task 14 - Xray Module Extraction
+
+Status: pending
+
+Цель: вынести Xray/VLESS state + config render.
+
+Входные файлы:
+
+- Xray methods in `app/bot.php`: `getXray`, `restartXray`, `xray`, `userXr`, `linkXray`, stats methods.
+
+Сделать:
+
+- Добавить `src/Module/Xray`.
+- Разделить:
+  - users;
+  - links;
+  - routing/templates;
+  - stats;
+  - config renderer.
+- DB state -> render `/config/xray.json`.
+- Runtime API/SSH behind interface.
+
+Проверка:
+
+- Unit tests render minimal xray config from DB fixtures.
+- Existing sample `/config/xray.json` can be parsed.
+
+Не делать:
+
+- Не переносить PAC/subscription here.
+
+## Task 15 - Remaining Modules
+
+Status: pending
+
+Цель: повторить pattern для остальных сервисов.
+
+Порядок:
+
+1. PAC/subscription
+2. AdGuard
+3. OpenConnect
+4. NaiveProxy
+5. Shadowsocks
+6. Hysteria
+7. DNSTT
+8. MTProto
+9. Cert/SSL
+10. Update/backup/logs
+
+Для каждого:
+
+- Создать `src/Module/<Name>`.
+- Вынести config parse/render.
+- Вынести menu builder.
+- Вынести runtime calls behind interface.
+- Добавить feature guard.
+- Добавить narrow tests.
+
+Проверка:
+
+- `php -l` changed files.
+- Unit tests for module.
+- No full stack start.
+
+## Task 16 - Cron Task Extraction
+
+Status: pending
+
+Цель: убрать cron logic из `Bot`.
+
+Входные файлы:
+
+- `app/cron.php`
+- `Bot::cron`
+- `checkBackup`, `checkLogs`, `checkCert`, `checkVersion`, `xrayStatsUser`, `autoAnalyzeLogs`.
+
+Сделать:
+
+- Добавить `src/Application/Cron/CronRunner.php`.
+- Каждая periodic action = отдельный class.
+- `app/cron.php` запускает `CronRunner`.
+- Old `Bot::cron` остается wrapper до удаления.
+
+Проверка:
+
+- Unit/dry-run one tick без endless loop.
+- `php -l app/cron.php`.
+
+Не делать:
+
+- Не менять интервалы без причины.
+
+## Task 17 - Remove Legacy Runtime Storage
+
+Status: pending
+
+Цель: убрать runtime-зависимость от старых JSON/PHP state.
+
+Условие старта:
+
+- Task 10 импорт готов.
+- Основные modules читают DB.
+- Config renderers пишут daemon files.
+
+Сделать:
+
+- Удалить прямые `file_get_contents('/config/pac.json')` как source of truth.
+- Удалить прямые writes в `clients.json`, `clients1.json`, `xray.stats` как state.
+- Оставить file writes только как generated daemon config.
+- Обновить backup/export под DB.
+
+Проверка:
+
+- `rtk rg "getPacConf|setPacConf|clients\\.json|xray\\.stats" app src`
+- Unit tests.
+
+Не делать:
+
+- Не удалять legacy importer.
+
+## Task 18 - Final Cleanup And PR Prep
+
+Status: pending
+
+Цель: подготовить код к review/upstream PR.
+
+Сделать:
+
+- Удалить dead code from `Bot`.
+- Обновить `readme.md` install/migration section.
+- Обновить `PROJECT_MAP.md`.
+- Добавить changelog section.
+- Запустить все статические проверки.
+- Подготовить PR summary:
+  - why;
+  - architecture;
+  - migration;
+  - compatibility;
+  - test coverage.
+
+Проверка:
+
+- `php -l` all changed PHP.
+- Unit tests.
+- `docker compose config`.
+- No full stack start unless user explicitly разрешит.

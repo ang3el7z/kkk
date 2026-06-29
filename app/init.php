@@ -2,6 +2,11 @@
 
 ini_set('session.use_cookies', 0);
 
+$autoload = dirname(__DIR__) . '/vendor/autoload.php';
+if (file_exists($autoload)) {
+    require $autoload;
+}
+
 require __DIR__ . '/timezone.php';
 
 require __DIR__ . '/bot.php';
