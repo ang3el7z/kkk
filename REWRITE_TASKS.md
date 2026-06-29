@@ -682,6 +682,16 @@ Done:
 - `Bot` now delegates AdGuard restart/config mutations and menu data reads through the new module instead of direct YAML mutation in those paths
 - added `tests/AdGuardModuleTest.php` with in-memory config repository coverage for restart calls and config transforms
 
+## Task 15.3 - OpenConnect
+
+Status: done
+
+Done:
+
+- added `src/Module/OpenConnect` with text config store, passwd user loader, runtime interface, and module facade for config mutation, route rewrite, and user password management
+- `Bot` now delegates OpenConnect restart/config changes, menu state parsing, and user add/delete/password flows through the new module
+- added `tests/OpenConnectModuleTest.php` for config rewrites, route rendering, and runtime call coverage
+
 ## Task 16 - Cron Task Extraction
 
 Status: pending

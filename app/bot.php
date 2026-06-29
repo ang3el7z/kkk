@@ -27,6 +27,9 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/AdGuard/AdGuardConfigRepository.php';
     require_once dirname(__DIR__) . '/src/Module/AdGuard/AdGuardModule.php';
     require_once dirname(__DIR__) . '/src/Module/AdGuard/AdGuardRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/OpenConnect/OpenConnectConfigStore.php';
+    require_once dirname(__DIR__) . '/src/Module/OpenConnect/OpenConnectModule.php';
+    require_once dirname(__DIR__) . '/src/Module/OpenConnect/OpenConnectRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/SqliteXrayStateRepository.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayConfigCodec.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayModule.php';
@@ -1223,12 +1226,11 @@ class Bot
 
     public function restartOcserv($conf)
     {
-        file_put_contents('/config/ocserv.conf', $conf);
-        $this->ssh('pkill ocserv', 'oc');
         $pac = $this->getPacConf();
-        if (!empty($pac['ocserv']) && !empty($this->getHashSubdomain('oc'))) {
-            $this->ssh('ocserv -c /etc/ocserv/ocserv.conf', 'oc');
-        }
+        $this->buildOpenConnectModule()->saveAndRestart(
+            $conf,
+            !empty($pac['ocserv']) && !empty($this->getHashSubdomain('oc'))
+        );
     }
 
     public function restartNaive()
@@ -1257,8 +1259,8 @@ class Bot
 
     public function chocdns($dns)
     {
-        $c = file_get_contents('/config/ocserv.conf');
-        $t = preg_replace('~^dns[^\n]+~sm', "dns = $dns", $c);
+        $c = $this->buildOpenConnectModule()->loadConfig();
+        $t = $this->buildOpenConnectModule()->updateDns($c, $dns);
         $this->restartOcserv($t);
         $this->menu('oc');
     }
@@ -1324,8 +1326,8 @@ class Bot
 
     public function chockey($pass)
     {
-        $c = file_get_contents('/config/ocserv.conf');
-        $t = preg_replace('~^camouflage_secret[^\n]+~sm', "camouflage_secret = \"$pass\"", $c);
+        $c = $this->buildOpenConnectModule()->loadConfig();
+        $t = $this->buildOpenConnectModule()->updateCamouflageSecret($c, $pass);
         $this->restartOcserv($t);
         $this->menu('oc');
     }
@@ -1333,8 +1335,8 @@ class Bot
     public function chocdomain($domain)
     {
         $oc = $this->getHashSubdomain('oc');
-        $c  = file_get_contents('/config/ocserv.conf');
-        $t  = preg_replace('~^default-domain[^\n]+~sm', "default-domain = $oc.$domain", $c);
+        $c  = $this->buildOpenConnectModule()->loadConfig();
+        $t  = $this->buildOpenConnectModule()->updateDefaultDomain($c, "$oc.$domain");
         $this->restartOcserv($t);
     }
 
@@ -1343,11 +1345,8 @@ class Bot
         $pac = $this->getPacConf();
         $pac['ocserv'] = $pass;
         $this->setPacConf($pac);
-        $clients = $this->getClientsOc();
-        foreach ($clients as $k => $v) {
-            $this->ssh("echo '$pass' | ocpasswd -c /etc/ocserv/ocserv.passwd $v", 'oc');
-        }
-        $this->restartOcserv(file_get_contents('/config/ocserv.conf'));
+        $this->buildOpenConnectModule()->syncAllUserPasswords($this->getClientsOc(), $pass);
+        $this->restartOcserv($this->buildOpenConnectModule()->loadConfig());
         $this->menu('oc');
     }
 
@@ -3636,21 +3635,19 @@ DNS-over-HTTPS with IP:
     public function ocservRoute()
     {
         $p = $this->getPacConf();
-        $c = file_get_contents('/config/ocserv.conf');
-        $t = preg_replace('~^route[^\n]+~sm', '', $c);
+        $c = $this->buildOpenConnectModule()->loadConfig();
+        $routes = [];
         if (!empty($p['subnets'])) {
             foreach ($p['subnets'] as $v) {
                 if (preg_match('~^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}~', $v)) {
-                    $t .= "route = $v";
-                    $flag = true;
+                    $routes[] = $v;
                 }
             }
-            if (empty($flag)) {
-                $t .= 'route = default';
-            }
-        } else {
-            $t .= 'route = default';
         }
+        if ($routes === []) {
+            $routes[] = 'default';
+        }
+        $t = $this->buildOpenConnectModule()->applyRoutes($c, $routes);
         $this->restartOcserv($t);
     }
 
@@ -6424,13 +6421,10 @@ DNS-over-HTTPS with IP:
     {
         $pac    = $this->getPacConf();
         $domain = $this->getDomain();
-        $ocserv = file_get_contents('/config/ocserv.conf');
-        preg_match('~^camouflage_secret[^\n]+?"([^"]+)*"~sm', $ocserv, $m);
-        $cs = $m[1];
-        preg_match('~^dns = ([^\n]+)~sm', $ocserv, $m);
-        $dns = $m[1];
-        preg_match('~^expose-iroutes = (true)~sm', $ocserv, $m);
-        $expose = $m[1];
+        $state = $this->buildOpenConnectModule()->parseMenuState($this->buildOpenConnectModule()->loadConfig());
+        $cs = $state['camouflage_secret'];
+        $dns = $state['dns'];
+        $expose = $state['expose_iroutes'];
         $pass   = htmlspecialchars($pac['ocserv']);
         $text[] = "Menu -> OpenConnect";
         if (!empty($cs)) {
@@ -6501,9 +6495,8 @@ DNS-over-HTTPS with IP:
 
     public function changeOcExpose()
     {
-        $c = file_get_contents('/config/ocserv.conf');
-        preg_match('~^expose-iroutes = ([^\n]+)~sm', $c, $m);
-        $t = preg_replace('~^expose-iroutes[^\n]+~sm', "expose-iroutes = " . ($m[1] == 'true' ? 'false' : 'true'), $c);
+        $c = $this->buildOpenConnectModule()->loadConfig();
+        $t = $this->buildOpenConnectModule()->toggleExposeIRoutes($c);
         $this->restartOcserv($t);
         $this->menu('oc');
     }
@@ -6513,7 +6506,7 @@ DNS-over-HTTPS with IP:
         $clients = $this->getClientsOc();
         foreach ($clients as $k => $v) {
             if ($i == $k) {
-                $this->ssh("ocpasswd -c /etc/ocserv/ocserv.passwd -d $v", 'oc');
+                $this->buildOpenConnectModule()->deleteUser($v);
                 break;
             }
         }
@@ -6540,14 +6533,13 @@ DNS-over-HTTPS with IP:
 
     public function getClientsOc()
     {
-        $users = array_filter(explode("\n", file_get_contents('/config/ocserv.passwd')), fn ($e) => !empty($e));
-        return array_map(fn($e) => explode(':', $e)[0], $users);
+        return $this->buildOpenConnectModule()->loadUsers();
     }
 
     public function addocus($user)
     {
         $pac = $this->getPacConf();
-        $this->ssh("echo '{$pac['ocserv']}' | ocpasswd -c /etc/ocserv/ocserv.passwd $user", 'oc');
+        $this->buildOpenConnectModule()->addUser($user, (string) $pac['ocserv']);
         $this->menu('oc');
     }
 
@@ -9392,6 +9384,48 @@ DNS-over-HTTPS with IP:
         return $module ??= new \VpnBot\Module\AdGuard\AdGuardModule(
             new \VpnBot\Module\AdGuard\AdGuardConfigStore($this->adguard),
             $this->buildAdGuardRuntime()
+        );
+    }
+
+    public function buildOpenConnectRuntime(): \VpnBot\Module\OpenConnect\OpenConnectRuntime
+    {
+        static $runtime;
+
+        return $runtime ??= new class ($this) implements \VpnBot\Module\OpenConnect\OpenConnectRuntime {
+            public function __construct(
+                private readonly Bot $bot,
+            ) {
+            }
+
+            public function start(): string
+            {
+                return $this->bot->ssh('ocserv -c /etc/ocserv/ocserv.conf', 'oc');
+            }
+
+            public function stop(): string
+            {
+                return $this->bot->ssh('pkill ocserv', 'oc');
+            }
+
+            public function setUserPassword(string $username, string $password): string
+            {
+                return $this->bot->ssh("echo '$password' | ocpasswd -c /etc/ocserv/ocserv.passwd $username", 'oc');
+            }
+
+            public function deleteUser(string $username): string
+            {
+                return $this->bot->ssh("ocpasswd -c /etc/ocserv/ocserv.passwd -d $username", 'oc');
+            }
+        };
+    }
+
+    public function buildOpenConnectModule(): \VpnBot\Module\OpenConnect\OpenConnectModule
+    {
+        static $module;
+
+        return $module ??= new \VpnBot\Module\OpenConnect\OpenConnectModule(
+            new \VpnBot\Module\OpenConnect\OpenConnectConfigStore(),
+            $this->buildOpenConnectRuntime()
         );
     }
 
