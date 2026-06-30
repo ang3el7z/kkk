@@ -4,7 +4,7 @@
 
 - Audit date: 2026-06-30
 - File: `app/bot.php`
-- Current size: 10,151 lines, 415,047 bytes
+- Current size: 9,838 lines, 404,175 bytes
 - Shape: legacy god-object with partial migration to `src/*`; new services/modules exist, but `Bot` still owns routing glue, large menu builders, HTTP handlers, reply/session flow, transport helpers, and runtime adapters.
 
 ## Largest Methods
@@ -121,6 +121,19 @@
   - protocol flows still called from old dispatch paths
   - HTTP subscription glue
   - transport/path mutation helpers used by current runtime
+
+## Task 33 Cleanup Status
+
+- Removed: `routeConfigMenu()` from `app/bot.php`
+  - Reason: no remaining callers after `Router` switched `config` callbacks onto generic `routeMenu(type)`.
+- Removed: `routeContainersMenu()` from `app/bot.php`
+  - Reason: no remaining callers after `Router` switched `containers` callbacks onto generic `routeMenu(type)`.
+- Kept: `ports()/hidePort()/setPort()`
+  - Reason: still called by `SettingsActionHandler`, callback routes, and `app/mtproto.php`.
+- Kept: `cleanDocker()`
+  - Reason: still called by `app/service.php`.
+- Kept: feature/container `build*` wrapper methods
+  - Reason: after Task 32 they are thin facades, but still active call sites inside `Bot`.
 
 ## Why `app/bot.php` Is Still Big
 

@@ -1481,7 +1481,13 @@ Commit:
 
 ## Task 33 - Bot Dead Code And Duplicate Cleanup
 
-Status: pending
+Status: done
+
+Done:
+
+- removed dead `routeConfigMenu()` and `routeContainersMenu()` from `app/bot.php`
+- confirmed `config` and `containers` routing now flows through generic `routeMenu(type)` and `src/Telegram/Router.php`
+- updated `BOT_MONOLITH_AUDIT.md` cleanup status and refreshed `app/bot.php` size snapshot
 
 Цель: после audit/extractions удалить дублированный или мертвый код, который остался в `app/bot.php` после выноса модулей.
 

@@ -9478,20 +9478,6 @@ DNS-over-HTTPS with IP:
         return $this->buildMenuActionHandler()->mirror();
     }
 
-    public function routeConfigMenu(): bool
-    {
-        $this->menu('config');
-
-        return true;
-    }
-
-    public function routeContainersMenu(): bool
-    {
-        $this->menu('containers');
-
-        return true;
-    }
-
     public function routeFeatureToggle(string $featureId): bool
     {
         return $this->buildSettingsActionHandler()->featureToggle($featureId);
