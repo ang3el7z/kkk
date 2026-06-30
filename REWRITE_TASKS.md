@@ -7,7 +7,7 @@
 - Рабочая ветка: `master`.
 - Base: `upstream/dev`, commit `6b42889b2a468abe6cd13747d748acabf55d176e`.
 - Не запускать весь стек: не выполнять `make u`, `make r`, `docker compose up`.
-- Можно запускать статические проверки: `php -l`, unit tests, dry-run скрипты, `docker compose config` без старта контейнеров.
+- Можно запускать статические проверки: `php -l`, temporary tmp checks, dry-run скрипты, `docker compose config` без старта контейнеров.
 - Не удалять старый `Bot` до задач, где это явно указано.
 - Каждый шаг должен быть маленьким: одна архитектурная цель, один понятный diff.
 - Если задача требует изменить runtime behavior, сначала добавить тест/проверку или простую точку rollback.
@@ -31,6 +31,16 @@
 После успешной проверки сделай commit и push в origin master.
 Если проверка не прошла, не коммить.
 В конце дай: changed files, verification, commit/push status, blockers.
+```
+
+## Testing Policy
+
+```text
+Permanent tests в repo не добавлять.
+Временные проверки можно писать только в tmp/.
+tmp/ не stage, не commit, не push.
+После задачи временные test scripts удалить или оставить ignored.
+Обязательные проверки: php -l, docker compose config, real smoke checklist.
 ```
 
 ## Task 01 - Composer Autoload Skeleton
@@ -833,7 +843,7 @@ Done:
 
 ## Task 18 - Final Cleanup And PR Prep
 
-Status: pending
+Status: done
 
 Цель: подготовить код к review/upstream PR.
 
@@ -865,3 +875,318 @@ Done:
 - refreshed `PROJECT_MAP.md` to reflect extracted modules, SQLite source-of-truth tables, generated daemon config files, and current safe checks
 - added `PR_SUMMARY.md` with why / architecture / migration / compatibility / test coverage for upstream review
 - ran `php -l` on changed PHP, full `tests/*Test.php` suite, and `docker compose config`
+
+## Task 19 - Testing Policy
+
+Status: done
+
+Цель: закрепить новый подход к проверкам: постоянные тесты больше не являются частью репозитория, основной критерий готовности - безопасные статические проверки и реальный smoke на VPS/устройствах.
+
+Сделать:
+
+- Добавить в `REWRITE_TASKS.md` раздел `Testing Policy` со строгими правилами:
+
+```text
+Permanent tests в repo не добавлять.
+Временные проверки можно писать только в tmp/.
+tmp/ не stage, не commit, не push.
+После задачи временные test scripts удалить или оставить ignored.
+Обязательные проверки: php -l, docker compose config, real smoke checklist.
+```
+
+- Обновить `PROJECT_MAP.md`, `PR_SUMMARY.md`, `readme.md`: убрать ожидание permanent unit tests как обязательной проверки.
+- Заменить формулировки `unit tests/tests` на `temporary tmp checks` там, где речь про будущие задачи.
+- Не удалять существующую папку `tests/` в этой задаче: это scope Task 20.
+
+Проверка:
+
+- `rtk git status`
+- docs diff only
+- если случайно менялся PHP: `php -l` changed PHP
+
+Не делать:
+
+- Не переносить и не удалять `tests/`.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `docs: add temporary testing policy`
+
+Done:
+
+- added `Testing Policy` section with repo-level rules for temporary checks and required verification
+- updated top-level verification wording to prefer `tmp/` checks over permanent repo tests
+- updated `PROJECT_MAP.md`, `PR_SUMMARY.md`, and `readme.md` to align with temporary-check + real-smoke expectations
+
+## Task 20 - Move Existing Tests To tmp
+
+Status: pending
+
+Цель: убрать permanent tests из репозитория, но сохранить текущие test scripts локально как временный harness для ручных/агентских проверок.
+
+Сделать:
+
+- Создать `tmp/tests/`.
+- Перенести существующие `tests/*` в `tmp/tests/*`.
+- Удалить `tests/` из tracked repo.
+- Добавить или проверить `.gitignore`:
+
+```gitignore
+/tmp/
+```
+
+- Убрать references на `tests/*.php` из `REWRITE_TASKS.md`, `PROJECT_MAP.md`, `PR_SUMMARY.md`, `readme.md`.
+- В docs заменить обязательные проверки на:
+  - `php -l`
+  - `docker compose config`
+  - temporary scripts in `tmp/` only when useful
+  - real smoke checklist
+
+Важно:
+
+- `tmp/tests/*` не stage, не commit, не push.
+- Commit должен содержать удаление tracked `tests/` и изменения docs/.gitignore only.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- optional local only: `php tmp/tests/<needed>.php`, но не required и не коммитить output/scripts
+
+Не делать:
+
+- Не добавлять новые permanent tests.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `chore: move tests to temporary checks`
+
+## Task 21 - Smoke Test Plan
+
+Status: pending
+
+Цель: заменить ощущение готовности от agent/local checks на понятный реальный smoke checklist.
+
+Сделать:
+
+- Создать `SMOKE_TEST_PLAN.md`.
+- Описать сценарии:
+  - fresh install на VPS;
+  - DB bootstrap;
+  - explicit legacy import через `bin/import-legacy.php`;
+  - Telegram main menu;
+  - container manager;
+  - disable/enable `xray`, `adguard`, `wireguard`, `mtproto`;
+  - проверка, что кнопки disabled features исчезают и возвращаются;
+  - проверка, что callback disabled feature blocked;
+  - проверка Docker state: stopped/removed/started;
+  - проверка client links/subscriptions после enable.
+- Добавить expected result для каждого шага.
+- Добавить fail-report format: command/action, expected, actual, logs/screenshots.
+
+Проверка:
+
+- docs only
+- `rtk git status`
+- no stack start locally
+
+Не делать:
+
+- Не выполнять реальный VPS smoke в этой задаче.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `docs: add smoke test plan`
+
+## Task 22 - Container Runtime Hardening
+
+Status: pending
+
+Цель: снизить риск от Docker socket и Telegram-triggered compose actions.
+
+Сделать:
+
+- Проверить, что toggle принимает только known `featureId` из `FeatureRegistry`.
+- Проверить, что service names всегда берутся из registry/definition, не из raw callback text.
+- Добавить explicit reject для unknown feature ids.
+- Добавить audit log для toggle actions:
+  - admin/user id;
+  - feature id;
+  - requested action;
+  - result;
+  - error text if failed.
+- Добавить confirmation step before enable/disable, чтобы случайный tap не останавливал container.
+- Улучшить Telegram error text при runtime failure.
+- Проверить rollback DB state, если compose/runtime failed.
+
+Проверка:
+
+- `php -l` changed PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+- no permanent tests
+
+Не делать:
+
+- Не менять список features/services без причины.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `feat: harden container toggles`
+
+## Task 23 - Container Status UX
+
+Status: pending
+
+Цель: manager должен показывать не только DB enabled/disabled, но и реальное состояние Docker containers.
+
+Сделать:
+
+- Добавить безопасный read-only status method в container runtime abstraction.
+- Получать status только для known services из registry.
+- В container manager menu показать:
+  - DB state: enabled/disabled;
+  - runtime state: running/stopped/missing/unknown;
+  - locked state для core services.
+- Добавить refresh button.
+- Показать warning, если DB says enabled, но container missing/stopped.
+- Fallback при Docker/status error: menu работает, status = unknown.
+
+Проверка:
+
+- `php -l` changed PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+- no permanent tests
+
+Не делать:
+
+- Не запускать/останавливать containers в этой задаче.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `feat: show container runtime status`
+
+## Task 24 - Legacy State Audit
+
+Status: pending
+
+Цель: убедиться, что старые JSON/files не остаются runtime source-of-truth там, где state уже должен жить в SQLite.
+
+Сделать:
+
+- Выполнить audit:
+
+```text
+rtk rg "pac\\.json|clients\\.json|clients1\\.json|xray\\.stats|file_get_contents|file_put_contents" app src
+```
+
+- Для каждого file access разделить:
+  - DB state;
+  - generated daemon config;
+  - app bootstrap config;
+  - legacy import only.
+- Убрать runtime reads/writes из `pac.json`, `clients.json`, `clients1.json`, `xray.stats`, где они ещё source-of-truth.
+- Оставить generated daemon config files, если они нужны containers.
+- Обновить docs: какие files generated, какие state в SQLite, какие legacy-import only.
+
+Проверка:
+
+- `rtk rg "pac\\.json|clients\\.json|clients1\\.json|xray\\.stats|file_get_contents|file_put_contents" app src`
+- `php -l` changed/all PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не удалять `bin/import-legacy.php`.
+- Не удалять generated daemon config files.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `refactor: audit legacy runtime state`
+
+## Task 25 - Bot.php Slimming Phase 2
+
+Status: pending
+
+Цель: уменьшить `app/bot.php`, оставив его facade/compat layer, а не главным местом бизнес-логики.
+
+Сделать:
+
+- Замерить текущий размер `app/bot.php` перед изменениями.
+- Выбрать 1-2 крупных, но изолированных зоны:
+  - menu builders;
+  - action handlers;
+  - subscription/http glue;
+  - service-specific controller methods.
+- Вынести выбранные зоны в `src/Telegram/*`, `src/Application/*` или `src/Module/*` по существующему pattern.
+- Не менять тексты кнопок, callback_data и user-visible behavior без явной причины.
+- Оставить old methods in `Bot` как wrappers, если это снижает риск.
+- Обновить `PROJECT_MAP.md`.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+- no permanent tests
+
+Не делать:
+
+- Не переписывать весь `Bot` одним diff.
+- Не менять runtime storage без отдельной причины.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `refactor: slim bot facade`
+
+## Task 26 - Real Device Smoke Report
+
+Status: pending
+
+Цель: зафиксировать результат реальной проверки на VPS и устройствах.
+
+Сделать:
+
+- Выполнить `SMOKE_TEST_PLAN.md` на реальном окружении.
+- Создать `SMOKE_TEST_REPORT.md`.
+- В отчете указать:
+  - VPS OS/version;
+  - install/update path;
+  - DB bootstrap result;
+  - legacy import result, если применимо;
+  - Telegram menu result;
+  - container manager result;
+  - per-feature toggle result;
+  - per-client/device result.
+- Проверить устройства/клиенты, где доступно:
+  - Android;
+  - iOS;
+  - Windows;
+  - WireGuard/Xray/Shadowsocks/OpenConnect/other enabled protocols.
+- Каждый bug оформить как отдельный next task, не чинить всё внутри smoke report.
+
+Проверка:
+
+- real VPS
+- real Telegram bot
+- real Docker container states
+- real client/device connections
+- no fake green without device result
+
+Не делать:
+
+- Не считать workflow готовым без реального smoke.
+- Не коммитить secrets, tokens, IPs, private keys, screenshots with sensitive data.
+
+Commit:
+
+- `docs: add smoke test report`

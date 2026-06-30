@@ -56,10 +56,11 @@
 ## Safe Verification Commands
 
 - Lint targeted PHP: `php -l <file>`
-- Unit tests: `php tests/<Name>Test.php`
+- Temporary local checks only: `php tmp/<script>.php` when useful
 - Schema bootstrap/migrations: `php bin/migrate.php --db ./tmp/vpnbot-test.sqlite`
 - Explicit legacy import check: `php bin/import-legacy.php --db ./tmp/vpnbot-test.sqlite --config-dir ./config --app-config app/config.php`
 - Compose render: `docker compose config`
+- Real readiness gate: VPS/device smoke checklist
 
 ## Rewrite Docs
 

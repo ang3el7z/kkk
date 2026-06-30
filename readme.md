@@ -43,6 +43,12 @@ docker compose config
 
 Do not rely on `/config/pac.json`, `/config/clients.json`, `/config/clients1.json`, or `/config/xray.stats` as runtime state after migration. Those paths are no longer the source of truth.
 
+Verification policy for ongoing rewrite work:
+
+- required safe checks: `php -l` and `docker compose config`
+- optional local helpers: temporary scripts under `tmp/` only
+- release confidence comes from real smoke checks on VPS/devices, not permanent repo tests
+
 ## Operations
 
 - Restart stack: `make r`

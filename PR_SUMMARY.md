@@ -28,16 +28,8 @@
 - Existing entrypoints (`app/index.php`, `app/init.php`, `app/service.php`, `app/cron.php`) stay in place.
 - Generated daemon config files under `/config` remain in use for service processes, but SQLite is the source of truth for runtime state.
 
-## Test Coverage
+## Verification
 
-- Feature toggles: `tests/FeatureManagerTest.php`
-- DB bootstrap: `tests/DatabaseBootstrapperTest.php`
-- Xray: `tests/XrayModuleTest.php`
-- PAC/templates/subscriptions: `tests/PacTemplateStoreTest.php`, `tests/SubscriptionModuleTest.php`
-- AdGuard/OpenConnect/NaiveProxy/Shadowsocks/Hysteria/DNSTT/MTProto/Cert/Maintenance/Cron:
-  `tests/AdGuardModuleTest.php`, `tests/OpenConnectModuleTest.php`, `tests/NaiveProxyModuleTest.php`,
-  `tests/ShadowsocksModuleTest.php`, `tests/HysteriaModuleTest.php`, `tests/DnsttModuleTest.php`,
-  `tests/MtprotoModuleTest.php`, `tests/CertificateModuleTest.php`, `tests/MaintenanceModuleTest.php`,
-  `tests/CronRunnerTest.php`
-- Runtime storage migration checks:
-  `tests/SqliteDocumentSettingsRepositoryTest.php`, `tests/SqliteWireGuardClientStoreTest.php`
+- Required safe checks for future work: `php -l`, `docker compose config`, and real smoke on VPS/devices.
+- Temporary validation scripts may live under `tmp/` when needed, but should not be staged or committed.
+- Historical rewrite work used focused local test harnesses during extraction; future review should treat smoke results as the release gate.
