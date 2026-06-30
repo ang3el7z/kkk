@@ -1815,7 +1815,13 @@ Commit:
 
 ## Task 43 - Backup And Restore DB Audit
 
-Status: pending
+Status: done
+
+Done:
+
+- audited current backup/export paths and confirmed bot export flows still serialize compatibility JSON rather than backing up `/data/vpnbot.sqlite`
+- documented that migrated-install restore must treat `/data/vpnbot.sqlite` as the authoritative runtime artifact, with `/config/*` and `/certs/*` restored only as needed for daemon state continuity
+- documented that `bin/import-legacy.php` is for explicit migration/import workflows, not the default restore path for an already-migrated SQLite install
 
 Цель: проверить, что после SQLite rewrite backup/restore не теряет runtime state.
 

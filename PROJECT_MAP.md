@@ -14,7 +14,7 @@
 - `app/service.php`: service-side maintenance tasks and startup helpers.
 - `app/cron.php`: launches `VpnBot\Application\Cron\CronRunner`.
 - `app/updatepac.php`: PAC list update worker.
-- `app/backup.php`: export entrypoint.
+- `app/backup.php`: JSON export entrypoint for compatibility/transfer flows; not an authoritative SQLite backup.
 - `app/bot.php`: still the main orchestration surface, but after Task 42 it is best understood as a legacy fallback controller containing the remaining HWID-heavy flows, menu rendering, HTTP/subscription formatting, a smaller set of runtime/config helpers, and a temporary composition root for extracted modules. See `BOT_MONOLITH_AUDIT.md`.
 
 ## Extracted Runtime Modules
@@ -64,6 +64,7 @@
 - Legacy import only: `/config/pac.json`, `/config/clients.json`, `/config/clients1.json`, `/config/xray.stats`
 - Generated daemon config files: `/config/xray.json`, `/config/wg0.conf`, `/config/wg1.conf`, `/config/AdGuardHome.yaml`, `/config/hysteria.yaml`, `/config/ocserv.conf`, `/config/ocserv.passwd`, `/config/ssserver.json`, `/config/sslocal.json`, `/config/mtprotosecret`, `/certs/*`
 - Audit note: the legacy JSON state paths above are no longer runtime source-of-truth; Task 24 found them only in the explicit legacy importer.
+- Backup/restore note: for migrated installs the authoritative restore artifact is `/data/vpnbot.sqlite`; bot JSON export/`app/backup.php` are compatibility snapshots, not full runtime backup replacements.
 
 ## Safe Verification Commands
 
