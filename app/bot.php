@@ -28,15 +28,26 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteAuditLogWriter.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteFeatureRepository.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteSettingsRepository.php';
+    require_once dirname(__DIR__) . '/src/Infrastructure/Docker/DockerApiClient.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Process/CommandRunner.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Process/ProcOpenCommandRunner.php';
+    require_once dirname(__DIR__) . '/src/Infrastructure/Runtime/ContainerShell.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteDocumentSettingsRepository.php';
+    require_once dirname(__DIR__) . '/src/Module/AdGuard/SshAdGuardRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Dnstt/SshDnsttRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Hysteria/SshHysteriaRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Maintenance/GitMaintenanceRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Mtproto/SshMtprotoRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/NaiveProxy/SshNaiveProxyRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/OpenConnect/SshOpenConnectRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Shadowsocks/SshShadowsocksRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardClientStore.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardBotFlow.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/SqliteWireGuardClientStore.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardConfigCodec.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardModule.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/WireGuard/SshWireGuardRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/Pac/PacTemplateStore.php';
     require_once dirname(__DIR__) . '/src/Telegram/TelegramClient.php';
     require_once dirname(__DIR__) . '/src/Module/Pac/SubscriptionModule.php';
@@ -5283,17 +5294,7 @@ DNS-over-HTTPS with IP:
 
     public function dockerApi($url, $method = 'GET', $data = [])
     {
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_CUSTOMREQUEST    => $method,
-            CURLOPT_POSTFIELDS       => !empty($data) ? json_encode($data) : null,
-            CURLOPT_URL              => "http://localhost$url",
-            CURLOPT_RETURNTRANSFER   => true,
-            CURLOPT_UNIX_SOCKET_PATH => '/var/run/docker.sock'
-        ]);
-        $r = json_decode(curl_exec($ch), true);
-        curl_close($ch);
-        return $r;
+        return $this->buildDockerApiClient()->request($url, $method, $data);
     }
 
     public function filterMenuButtons(array $keyboard): array
@@ -7840,22 +7841,7 @@ DNS-over-HTTPS with IP:
     {
         static $runtime;
 
-        return $runtime ??= new class ($this) implements \VpnBot\Module\AdGuard\AdGuardRuntime {
-            public function __construct(
-                private readonly Bot $bot,
-            ) {
-            }
-
-            public function start(): string
-            {
-                return $this->bot->ssh('/opt/adguardhome/AdGuardHome --no-check-update --pidfile /opt/adguardhome/pid -c /config/AdGuardHome.yaml -h 0.0.0.0 -w /opt/adguardhome/work', 'ad', false);
-            }
-
-            public function stop(): string
-            {
-                return $this->bot->ssh('kill -15 $(cat /opt/adguardhome/pid)', 'ad');
-            }
-        };
+        return $runtime ??= new \VpnBot\Module\AdGuard\SshAdGuardRuntime($this->buildContainerShell());
     }
 
     public function buildAdGuardModule(): \VpnBot\Module\AdGuard\AdGuardModule
@@ -7872,32 +7858,7 @@ DNS-over-HTTPS with IP:
     {
         static $runtime;
 
-        return $runtime ??= new class ($this) implements \VpnBot\Module\OpenConnect\OpenConnectRuntime {
-            public function __construct(
-                private readonly Bot $bot,
-            ) {
-            }
-
-            public function start(): string
-            {
-                return $this->bot->ssh('ocserv -c /etc/ocserv/ocserv.conf', 'oc');
-            }
-
-            public function stop(): string
-            {
-                return $this->bot->ssh('pkill ocserv', 'oc');
-            }
-
-            public function setUserPassword(string $username, string $password): string
-            {
-                return $this->bot->ssh("echo '$password' | ocpasswd -c /etc/ocserv/ocserv.passwd $username", 'oc');
-            }
-
-            public function deleteUser(string $username): string
-            {
-                return $this->bot->ssh("ocpasswd -c /etc/ocserv/ocserv.passwd -d $username", 'oc');
-            }
-        };
+        return $runtime ??= new \VpnBot\Module\OpenConnect\SshOpenConnectRuntime($this->buildContainerShell());
     }
 
     public function buildOpenConnectModule(): \VpnBot\Module\OpenConnect\OpenConnectModule
@@ -7914,22 +7875,7 @@ DNS-over-HTTPS with IP:
     {
         static $runtime;
 
-        return $runtime ??= new class ($this) implements \VpnBot\Module\NaiveProxy\NaiveProxyRuntime {
-            public function __construct(
-                private readonly Bot $bot,
-            ) {
-            }
-
-            public function start(): string
-            {
-                return $this->bot->ssh('caddy run -c /config/Caddyfile', 'np', false);
-            }
-
-            public function stop(): string
-            {
-                return $this->bot->ssh('pkill caddy', 'np');
-            }
-        };
+        return $runtime ??= new \VpnBot\Module\NaiveProxy\SshNaiveProxyRuntime($this->buildContainerShell());
     }
 
     public function buildNaiveProxyModule(): \VpnBot\Module\NaiveProxy\NaiveProxyModule
@@ -7946,22 +7892,7 @@ DNS-over-HTTPS with IP:
     {
         static $runtime;
 
-        return $runtime ??= new class ($this) implements \VpnBot\Module\Hysteria\HysteriaRuntime {
-            public function __construct(
-                private readonly Bot $bot,
-            ) {
-            }
-
-            public function start(): string
-            {
-                return $this->bot->ssh('hysteria server -c /config/hysteria.yaml', 'hy', false, '/logs/hysteria');
-            }
-
-            public function stop(): string
-            {
-                return $this->bot->ssh('pkill hysteria', 'hy');
-            }
-        };
+        return $runtime ??= new \VpnBot\Module\Hysteria\SshHysteriaRuntime($this->buildContainerShell());
     }
 
     public function buildHysteriaModule(): \VpnBot\Module\Hysteria\HysteriaModule
@@ -7978,34 +7909,7 @@ DNS-over-HTTPS with IP:
     {
         static $runtime;
 
-        return $runtime ??= new class ($this) implements \VpnBot\Module\Dnstt\DnsttRuntime {
-            public function __construct(
-                private readonly Bot $bot,
-            ) {
-            }
-
-            public function stop(): string
-            {
-                return $this->bot->ssh('pkill dnstt', 'dnstt');
-            }
-
-            public function ensureUserPassword(string $username, string $password): string
-            {
-                $this->bot->ssh("adduser -D -s /bin/sh $username", 'dnstt');
-
-                return $this->bot->ssh("echo '$username:$password' | chpasswd", 'dnstt');
-            }
-
-            public function generateKeyPair(): string
-            {
-                return $this->bot->ssh('dnstt-server -gen-key -privkey-file /dnstt/server.key -pubkey-file /dnstt/server.pub', 'dnstt');
-            }
-
-            public function start(string $domain): string
-            {
-                return $this->bot->ssh("dnstt-server -udp :53 -privkey-file /dnstt/server.key $domain 127.0.0.1:22", 'dnstt', false, '/logs/dnstt');
-            }
-        };
+        return $runtime ??= new \VpnBot\Module\Dnstt\SshDnsttRuntime($this->buildContainerShell());
     }
 
     public function buildDnsttModule(): \VpnBot\Module\Dnstt\DnsttModule
@@ -8022,27 +7926,7 @@ DNS-over-HTTPS with IP:
     {
         static $runtime;
 
-        return $runtime ??= new class ($this) implements \VpnBot\Module\Mtproto\MtprotoRuntime {
-            public function __construct(
-                private readonly Bot $bot,
-            ) {
-            }
-
-            public function stop(): string
-            {
-                return $this->bot->ssh('pkill mtproto-proxy', 'tg');
-            }
-
-            public function start(string $command): string
-            {
-                return $this->bot->ssh($command, 'tg', false, '/logs/mtproto');
-            }
-
-            public function isRunning(): bool
-            {
-                return (bool) $this->bot->ssh('pgrep mtproto-proxy', 'tg');
-            }
-        };
+        return $runtime ??= new \VpnBot\Module\Mtproto\SshMtprotoRuntime($this->buildContainerShell());
     }
 
     public function buildMtprotoModule(): \VpnBot\Module\Mtproto\MtprotoModule
@@ -8110,19 +7994,7 @@ DNS-over-HTTPS with IP:
     {
         static $runtime;
 
-        return $runtime ??= new class () implements \VpnBot\Module\Maintenance\MaintenanceRuntime {
-            public function currentBranch(): string
-            {
-                return trim((string) exec('git -C / rev-parse --abbrev-ref HEAD'));
-            }
-
-            public function branchStatusLines(): array
-            {
-                exec('git -C / branch -vv', $output);
-
-                return $output;
-            }
-        };
+        return $runtime ??= new \VpnBot\Module\Maintenance\GitMaintenanceRuntime();
     }
 
     public function buildMaintenanceModule(): \VpnBot\Module\Maintenance\MaintenanceModule
@@ -8140,32 +8012,7 @@ DNS-over-HTTPS with IP:
     {
         static $runtime;
 
-        return $runtime ??= new class ($this) implements \VpnBot\Module\Shadowsocks\ShadowsocksRuntime {
-            public function __construct(
-                private readonly Bot $bot,
-            ) {
-            }
-
-            public function startServer(): string
-            {
-                return $this->bot->ssh('ssserver -v -d -c /config.json', 'ss');
-            }
-
-            public function stopServer(): string
-            {
-                return $this->bot->ssh('pkill ssserver', 'ss');
-            }
-
-            public function startLocal(): string
-            {
-                return $this->bot->ssh('sslocal -v -d -c /config.json', 'proxy');
-            }
-
-            public function stopLocal(): string
-            {
-                return $this->bot->ssh('pkill sslocal', 'proxy');
-            }
-        };
+        return $runtime ??= new \VpnBot\Module\Shadowsocks\SshShadowsocksRuntime($this->buildContainerShell());
     }
 
     public function buildShadowsocksModule(): \VpnBot\Module\Shadowsocks\ShadowsocksModule
@@ -8196,31 +8043,7 @@ DNS-over-HTTPS with IP:
             return $modules[$service];
         }
 
-        $runtime = new class ($this) implements \VpnBot\Module\WireGuard\WireGuardRuntime {
-            public function __construct(
-                private readonly Bot $bot,
-            ) {
-            }
-
-            public function readConfig(string $service): string
-            {
-                return $this->bot->ssh('cat /etc/wireguard/wg0.conf', $service);
-            }
-
-            public function readStatus(string $service, string $binary): string
-            {
-                return $this->bot->ssh($binary, $service);
-            }
-
-            public function applyConfig(string $service, string $downBinary, string $upBinary, string $config): bool
-            {
-                $this->bot->ssh("echo '$config' > /etc/wireguard/wg0.conf", $service);
-                $this->bot->ssh("{$downBinary}-quick down wg0", $service);
-                $this->bot->ssh("{$upBinary}-quick up wg0", $service);
-
-                return true;
-            }
-        };
+        $runtime = new \VpnBot\Module\WireGuard\SshWireGuardRuntime($this->buildContainerShell());
 
         $store = new \VpnBot\Module\WireGuard\SqliteWireGuardClientStore(
             $this->buildDatabaseBootstrapper()->bootstrap(),
@@ -8357,6 +8180,20 @@ DNS-over-HTTPS with IP:
         static $client;
 
         return $client ??= new \VpnBot\Telegram\TelegramClient($this->api);
+    }
+
+    public function buildContainerShell(): \VpnBot\Infrastructure\Runtime\ContainerShell
+    {
+        static $shell;
+
+        return $shell ??= new \VpnBot\Infrastructure\Runtime\ContainerShell();
+    }
+
+    public function buildDockerApiClient(): \VpnBot\Infrastructure\Docker\DockerApiClient
+    {
+        static $client;
+
+        return $client ??= new \VpnBot\Infrastructure\Docker\DockerApiClient();
     }
 
     public function buildFeatureRuntimeFactory(): \VpnBot\Bootstrap\FeatureRuntimeFactory
@@ -9220,6 +9057,18 @@ DNS-over-HTTPS with IP:
 
     public function ssh($cmd, $service = 'wg', $wait = true, $log = '/dev/null')
     {
+        return $this->buildContainerShell()->exec(
+            (string) $cmd,
+            (string) $service,
+            (bool) $wait,
+            (string) $log,
+            function (string $message): void {
+                if (!empty($GLOBALS['debug'])) {
+                    $this->send($this->input['chat'], $message, $this->input['message_id']);
+                }
+            }
+        );
+
         try {
             $c = ssh2_connect($service, 22);
             if (empty($c)) {

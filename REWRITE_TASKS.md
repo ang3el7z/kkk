@@ -1779,7 +1779,14 @@ Commit:
 
 ## Task 42 - Runtime Helpers Extraction
 
-Status: pending
+Status: done
+
+Done:
+
+- added shared runtime adapters `src/Infrastructure/Runtime/ContainerShell.php` and `src/Infrastructure/Docker/DockerApiClient.php`
+- replaced safe anonymous SSH-backed runtimes with named classes for AdGuard, OpenConnect, NaiveProxy, Hysteria, DNSTT, MTProto, Shadowsocks, WireGuard, and maintenance git status
+- converted `Bot::dockerApi()` to a thin delegate through `buildDockerApiClient()` and `Bot::ssh()` to a thin delegate through `buildContainerShell()`
+- updated `PROJECT_MAP.md` and `BOT_MONOLITH_AUDIT.md` to reflect that safe runtime adapters no longer live inline in `Bot`
 
 Цель: вынести low-level runtime helpers и anonymous adapters из `Bot` в named runtime classes.
 
