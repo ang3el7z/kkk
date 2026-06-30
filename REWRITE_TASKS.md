@@ -752,6 +752,16 @@ Done:
 - `Bot` now delegates SSL import/export state, bundle persistence, letsencrypt bundle retrieval, delete flow, and nginx cert-type/expiry/domain reads through the extracted certificate module instead of mutating cert files inline
 - added `tests/CertificateModuleTest.php` for letsencrypt domain expansion, bundle parsing, persisted pair lifecycle, and cert-type parsing coverage
 
+## Task 15.10 - Update/backup/logs
+
+Status: done
+
+Done:
+
+- added `src/Module/Maintenance` with log store, update-state store, runtime interface, and module facade for log file operations, branch/update state reads, and backup/autoclean schedule parsing
+- `Bot` now delegates update branch state reads, reload marker persistence, log listing/clear/delete operations, and schedule formatting/normalization through the maintenance module instead of mutating update/log files inline
+- added `tests/MaintenanceModuleTest.php` for log lifecycle, schedule parsing, and reload-state persistence coverage
+
 ## Task 16 - Cron Task Extraction
 
 Status: pending

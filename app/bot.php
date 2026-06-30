@@ -45,6 +45,10 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/Cert/CertificateStore.php';
     require_once dirname(__DIR__) . '/src/Module/Cert/CertificateModule.php';
     require_once dirname(__DIR__) . '/src/Module/Cert/CertificateRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Maintenance/LogStore.php';
+    require_once dirname(__DIR__) . '/src/Module/Maintenance/MaintenanceModule.php';
+    require_once dirname(__DIR__) . '/src/Module/Maintenance/MaintenanceRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Maintenance/UpdateStateStore.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksConfigStore.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksModule.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksRuntime.php';
@@ -8952,8 +8956,8 @@ DNS-over-HTTPS with IP:
 
     public function updatebot()
     {
-        $b = exec('git -C / rev-parse --abbrev-ref HEAD');
-        $track  = trim(file_get_contents('/update/branch'));
+        $b = $this->buildMaintenanceModule()->currentBranch();
+        $track  = $this->buildMaintenanceModule()->trackedBranch();
         $data = [
             [
                 [
@@ -8978,7 +8982,7 @@ DNS-over-HTTPS with IP:
                 'callback_data' => "/menu config",
             ],
         ];
-        exec("git -C / branch -vv", $mm);
+        $mm = $this->buildMaintenanceModule()->branchStatusLines();
         return [
             'text' => '<pre><code class="language-shell">' . htmlentities(implode("\n", $mm)) . '</code></pre>',
             'data' => $data,
@@ -8989,28 +8993,32 @@ DNS-over-HTTPS with IP:
     {
         $this->pinBackup($this->update);
         $r = $this->sendDraft($this->input['from'], 1, 'update...');
-        file_put_contents('/update/reload_message', "{$this->input['from']}:{$r['result']['message_id']}");
-        file_put_contents('/update/key', $this->key);
-        file_put_contents('/update/curl', json_encode([
+        $this->buildMaintenanceModule()->storeReloadRequest(
+            "{$this->input['from']}:{$r['result']['message_id']}",
+            $this->key,
+            [
             'chat_id'    => $this->input['chat'],
             'message_id' => $r['result']['message_id'],
             'text'       => '~t~'
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        file_put_contents('/update/pipe', '1');
+            ],
+            '1'
+        );
         $this->delete($this->input['from'], $this->input['message_id']);
     }
 
     public function restart()
     {
         $r = $this->sendDraft($this->input['from'], 1, 'restart...');
-        file_put_contents('/update/reload_message', "{$this->input['from']}:{$r['result']['message_id']}");
-        file_put_contents('/update/key', $this->key);
-        file_put_contents('/update/curl', json_encode([
+        $this->buildMaintenanceModule()->storeReloadRequest(
+            "{$this->input['from']}:{$r['result']['message_id']}",
+            $this->key,
+            [
             'chat_id'    => $this->input['chat'],
             'message_id' => $r['result']['message_id'],
             'text'       => '~t~'
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        file_put_contents('/update/pipe', '2');
+            ],
+            '2'
+        );
         $this->delete($this->input['from'], $this->input['message_id']);
     }
 
@@ -9120,17 +9128,14 @@ DNS-over-HTTPS with IP:
                 'callback_data' => "/import",
             ],
         ];
-        $backup = array_filter(explode('/', $conf['backup']));
-        if (!empty($backup)) {
-            if (!empty(strtotime($backup[0])) && !empty(strtotime($backup[1]))) {
-                $backup = "{$backup[0]} start / {$backup[1]} period";
-            } else {
-                $backup = $this->i18n('off') . " {$conf['backup']} - wrong format";
-            }
+        $backup = $this->buildMaintenanceModule()->describeSchedule((string) ($conf['backup'] ?? ''));
+        $backupDisplay = $backup['display'];
+        if ($backup['enabled'] && ! $backup['valid']) {
+            $backupDisplay = $this->i18n('off') . " {$conf['backup']} - wrong format";
         }
         $data[] = [
             [
-                'text'          => $this->i18n('backup') . ': ' . ($backup ?: $this->i18n('off')),
+                'text'          => $this->i18n('backup') . ': ' . ($backupDisplay ?: $this->i18n('off')),
                 'callback_data' => "/backup",
             ],
         ];
@@ -9638,6 +9643,36 @@ DNS-over-HTTPS with IP:
         );
     }
 
+    public function buildMaintenanceRuntime(): \VpnBot\Module\Maintenance\MaintenanceRuntime
+    {
+        static $runtime;
+
+        return $runtime ??= new class () implements \VpnBot\Module\Maintenance\MaintenanceRuntime {
+            public function currentBranch(): string
+            {
+                return trim((string) exec('git -C / rev-parse --abbrev-ref HEAD'));
+            }
+
+            public function branchStatusLines(): array
+            {
+                exec('git -C / branch -vv', $output);
+
+                return $output;
+            }
+        };
+    }
+
+    public function buildMaintenanceModule(): \VpnBot\Module\Maintenance\MaintenanceModule
+    {
+        static $module;
+
+        return $module ??= new \VpnBot\Module\Maintenance\MaintenanceModule(
+            new \VpnBot\Module\Maintenance\LogStore(),
+            new \VpnBot\Module\Maintenance\UpdateStateStore(),
+            $this->buildMaintenanceRuntime()
+        );
+    }
+
     public function buildShadowsocksRuntime(): \VpnBot\Module\Shadowsocks\ShadowsocksRuntime
     {
         static $runtime;
@@ -10034,20 +10069,17 @@ DNS-over-HTTPS with IP:
     public function logs()
     {
         $p = $this->getPacConf();
-        foreach (scandir('/logs/') as $k => $v) {
-            if (!preg_match('~^\.~', $v)) {
-                $size   = filesize("/logs/$v");
-                $data[] = [
-                    [
-                        'text'          => "$size $v",
-                        'callback_data' => "/getLog $k",
-                    ],
-                    [
-                        'text'          => $this->i18n('clean'),
-                        'callback_data' => "/clearLog $k",
-                    ],
-                ];
-            }
+        foreach ($this->buildMaintenanceModule()->logs() as $k => $log) {
+            $data[] = [
+                [
+                    'text'          => "{$log['size']} {$log['name']}",
+                    'callback_data' => "/getLog $k",
+                ],
+                [
+                    'text'          => $this->i18n('clean'),
+                    'callback_data' => "/clearLog $k",
+                ],
+            ];
         }
         $data[] = [
             [
@@ -10055,17 +10087,14 @@ DNS-over-HTTPS with IP:
                 'callback_data' => "/cleanLog",
             ],
         ];
-        $autocleanlogs = array_filter(explode('/', $p['autocleanlogs']));
-        if (!empty($autocleanlogs)) {
-            if (!empty(strtotime($autocleanlogs[0])) && !empty(strtotime($autocleanlogs[1]))) {
-                $autocleanlogs = "{$autocleanlogs[0]} start / {$autocleanlogs[1]} period";
-            } else {
-                $autocleanlogs = $this->i18n('off') . " {$p['autocleanlogs']} - wrong format";
-            }
+        $autocleanlogs = $this->buildMaintenanceModule()->describeSchedule((string) ($p['autocleanlogs'] ?? ''));
+        $autocleanDisplay = $autocleanlogs['display'];
+        if ($autocleanlogs['enabled'] && ! $autocleanlogs['valid']) {
+            $autocleanDisplay = $this->i18n('off') . " {$p['autocleanlogs']} - wrong format";
         }
         $data[] = [
             [
-                'text'          => $this->i18n('autoclean'). ': ' . ($autocleanlogs ?: $this->i18n('off')),
+                'text'          => $this->i18n('autoclean'). ': ' . ($autocleanDisplay ?: $this->i18n('off')),
                 'callback_data' => "/autoCleanLogs",
             ],
         ];
@@ -10085,56 +10114,43 @@ DNS-over-HTTPS with IP:
 
     public function getLog($i)
     {
-        foreach (scandir('/logs/') as $k => $v) {
-            if (!preg_match('~^\.~', $v)) {
-                $logs[$k] = $v;
-            }
+        $log = $this->buildMaintenanceModule()->logByIndex((int) $i);
+        if ($log === null) {
+            return;
         }
         $this->sendFile(
             $this->input['chat'],
-            curl_file_create("/logs/{$logs[$i]}"),
+            curl_file_create($log['path']),
         );
     }
 
     public function clearLog($i)
     {
-        foreach (scandir('/logs/') as $k => $v) {
-            if ($i == $k) {
-                file_put_contents("/logs/$v", '');
-                break;
-            }
-        }
+        $this->buildMaintenanceModule()->clearLogByIndex((int) $i);
         $this->logs();
     }
 
     public function cleanLog()
     {
-        foreach (scandir('/logs/') as $k => $v) {
-            file_put_contents("/logs/$v", '');
-        }
+        $this->buildMaintenanceModule()->clearAllLogs();
         $this->logs();
     }
 
     public function delLog($i)
     {
-        foreach (scandir('/logs/') as $k => $v) {
-            if ($i == $k) {
-                unlink("/logs/$v");
-                break;
-            }
-        }
+        $this->buildMaintenanceModule()->deleteLogByIndex((int) $i);
         $this->logs();
     }
 
     public function selfUpdate()
     {
         $ip                         = getenv('IP');
-        $rm                         = explode(':', trim(file_get_contents('/update/reload_message')));
-        $m                          = file_get_contents('/update/message');
+        $rm                         = explode(':', $this->buildMaintenanceModule()->reloadMessage());
+        $m                          = $this->buildMaintenanceModule()->updateMessage();
         $this->input['chat']        = $rm[0];
         $this->input['message_id']  = $rm[1] ?? false;
         $this->input['callback_id'] = $rm[1] ?? false;
-        if (file_exists($this->update)) {
+        if (file_exists($this->buildMaintenanceModule()->updateJsonPath())) {
             $this->selfupdate = true;
             if (!empty($m)) {
                 $this->send($this->input['chat'], "<pre>$m</pre>", $rm[1]);
@@ -10142,11 +10158,10 @@ DNS-over-HTTPS with IP:
             $r = $this->send($this->input['chat'], "import settings");
             $this->input['message_id']  = $r['result']['message_id'];
             $this->input['callback_id'] = $r['result']['message_id'];
-            $this->importFile($this->update);
-            unlink($this->update);
+            $this->importFile($this->buildMaintenanceModule()->updateJsonPath());
+            unlink($this->buildMaintenanceModule()->updateJsonPath());
         }
-        file_put_contents('/update/message', '');
-        file_put_contents('/update/reload_message', '');
+        $this->buildMaintenanceModule()->clearReloadState();
         $pac = $this->getPacConf();
         unset($pac['restart']);
         $this->setPacConf($pac);
@@ -10357,17 +10372,14 @@ DNS-over-HTTPS with IP:
 
     public function setBackup($text)
     {
-        $text = trim($text);
         $c    = $this->getPacConf();
-        if (empty($text)) {
+        $normalized = $this->buildMaintenanceModule()->normalizeSchedule($text);
+        if ($normalized === '') {
             $c['backup'] = '';
+        } elseif ($normalized === null) {
+            $this->send($this->input['from'], $this->input['message'] . ' - wrong format');
         } else {
-            [$start, $period] = explode('/', $text);
-            if (!empty(strtotime($start)) && !empty(strtotime($period))) {
-                $c['backup'] = implode(' / ', [date('Y-m-d H:i', strtotime($start)), trim($period)]);
-            } else {
-                $this->send($this->input['from'], $this->input['message'] . ' - wrong format');
-            }
+            $c['backup'] = $normalized;
         }
         if ($c['pinbackup']) {
             $this->pinAdmin($c['pinbackup'], 1);
@@ -10379,17 +10391,14 @@ DNS-over-HTTPS with IP:
 
     public function setAutoCleanLogs($text)
     {
-        $text = trim($text);
         $c    = $this->getPacConf();
-        if (empty($text)) {
+        $normalized = $this->buildMaintenanceModule()->normalizeSchedule($text);
+        if ($normalized === '') {
             $c['autocleanlogs'] = '';
+        } elseif ($normalized === null) {
+            $this->send($this->input['from'], $this->input['message'] . ' - wrong format');
         } else {
-            [$start, $period] = explode('/', $text);
-            if (!empty(strtotime($start)) && !empty(strtotime($period))) {
-                $c['autocleanlogs'] = implode(' / ', [date('Y-m-d H:i', strtotime($start)), trim($period)]);
-            } else {
-                $this->send($this->input['from'], $this->input['message'] . ' - wrong format');
-            }
+            $c['autocleanlogs'] = $normalized;
         }
         $this->setPacConf($c);
         $this->logs();
