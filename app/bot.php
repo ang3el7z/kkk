@@ -2,6 +2,16 @@
 
 if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Application/Feature/ContainerRuntime.php';
+    require_once dirname(__DIR__) . '/src/Application/Cron/AutoAnalyzeLogsAction.php';
+    require_once dirname(__DIR__) . '/src/Application/Cron/BackupScheduleAction.php';
+    require_once dirname(__DIR__) . '/src/Application/Cron/CertificateExpiryCheckAction.php';
+    require_once dirname(__DIR__) . '/src/Application/Cron/CronAction.php';
+    require_once dirname(__DIR__) . '/src/Application/Cron/CronRunner.php';
+    require_once dirname(__DIR__) . '/src/Application/Cron/LogCleanupScheduleAction.php';
+    require_once dirname(__DIR__) . '/src/Application/Cron/ShutdownClientsAction.php';
+    require_once dirname(__DIR__) . '/src/Application/Cron/VersionCheckAction.php';
+    require_once dirname(__DIR__) . '/src/Application/Cron/XrayStatsPollAction.php';
+    require_once dirname(__DIR__) . '/src/Application/Cron/XrayStatsResetAction.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/DockerContainerRuntime.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/FeatureManager.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/NoopContainerRuntime.php';
@@ -1510,207 +1520,32 @@ class Bot
 
     public function cron()
     {
-        $period = 10;
-        while (true) {
-            $this->shutdownClient();
-            $this->shutdownClientXr();
-            $this->checkVersion();
-            $this->checkBackup();
-            $this->checkLogs();
-            $this->checkResetXrayStats();
-            $this->checkCert();
-            $this->autoAnalyzeLogs();
-            $this->xrayStatsUser();
-            sleep($period);
-        }
+        $this->buildCronRunner()->runLoop();
     }
 
     public function xrayStatsUser()
     {
-        if (empty($this->time_xray_stats) || time() - $this->time_xray_stats > 60) {
-            $this->time_xray_stats = time();
-            try {
-                $x  = $this->getXray();
-                $td = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "inbound>>>vless_tls>>>traffic>>>downlink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
-                $tu = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "inbound>>>vless_tls>>>traffic>>>uplink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
-                $p  = $this->getXrayStats();
-                $p['session'] = [
-                    'download' => $td,
-                    'upload'   => $tu,
-                ];
-                if (!empty($users = $x['inbounds'][0]['settings']['clients'])) {
-                    $tmp = [];
-                    foreach ($users as $k => $v) {
-                        $d = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "user>>>' . $v['email'] . '>>>traffic>>>downlink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
-                        $u = json_decode($this->ssh('xray api stats --server=127.0.0.1:8080 -name "user>>>' . $v['email'] . '>>>traffic>>>uplink" 2>&1', 'xr'), true)['stat']['value'] ?: 0;
-                        $tmp[$k] = [
-                            'session' => [
-                                'download' => $d,
-                                'upload'   => $u,
-                            ],
-                            'global' => [
-                                'download' => $p['users'][$k]['global']['download'],
-                                'upload'   => $p['users'][$k]['global']['upload'],
-                            ]
-                        ];
-                    }
-                    $p['users'] = $tmp;
-                }
-                $this->setXrayStats($p);
-            } catch (\Throwable $th) {
-            }
-        }
+        $this->buildCronActionMap()['xray_stats']->tick();
     }
 
     public function autoAnalyzeLogs()
     {
-        try {
-            $pac = $this->getPacConf();
-            if (!empty($pac['autoscan'])) {
-                require __DIR__ . '/config.php';
-                if (!empty($c['admin']) && (empty($this->time3) || ((time() - $this->time3) > $pac['autoscan_timeout']))) {
-                    $this->time3 = time();
-                    $r = $this->analysisIp(return: 1);
-                    if (!empty($r)) {
-                        foreach ($r as $k => $v) {
-                            foreach ($v as $i) {
-                                $t[$i['title']][$k] = 1;
-                            }
-                        }
-                        foreach ($t as $k => $v) {
-                            $text .= "\n" . count($v) . " $k";
-                        }
-                        if (!empty($pac['autodeny'])) {
-                            $this->denyIp(array_keys($r));
-                            $ban = count(array_keys($r));
-                            foreach (array_keys($r) as $v) {
-                                $ips[] = [[
-                                    'text'          => $v,
-                                    'callback_data' => "/searchLogs $v",
-                                ]];
-                            }
-                        }
-                        if ($pac['silence'] == 0 || $pac['silence'] == 1) {
-                            foreach ($c['admin'] as $k => $v) {
-                                $this->send($v, "suspicious ips found: $text" . ($ban ? "\nbanned:$ban" : ''), button: $ips ?: [[
-                                    [
-                                        'text'          => $this->i18n('analyze'),
-                                        'callback_data' => '/analysisIp',
-                                    ],
-                                ]], disable_notification: $pac['silence'] ? true : false);
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Exception $e) {
-            file_put_contents('/logs/php_error', $e->getMessage());
-        }
+        $this->buildCronActionMap()['analyze_logs']->tick();
     }
 
     public function checkBackup()
     {
-        $c = $this->getPacConf();
-        if (!empty($c['backup'])) {
-            $now = time();
-            [$start, $period] = explode('/', $c['backup']);
-            $start  = strtotime(trim($start));
-            $period = strtotime(trim($period), 0);
-
-            if (
-                !empty($start)
-                && !empty($period)
-                && $now >= $start
-            ) {
-                // Вычисляем, сколько полных периодов прошло с момента start
-                $elapsed = $now - $start;
-                $periodsElapsed = floor($elapsed / $period);
-
-                // Время последнего планового бэкапа
-                $lastScheduledBackup = $start + ($periodsElapsed * $period);
-
-                // Проверяем, делали ли уже бэкап в этом периоде
-                $lastBackupTime = $c['last_backup_time'] ?? 0;
-
-                // Если последний бэкап был сделан до начала текущего периода - делаем бэкап
-                if ($lastBackupTime < $lastScheduledBackup) {
-                    $c['last_backup_time'] = $now;
-                    $this->setPacConf($c);
-                    $this->pinBackup();
-                }
-            }
-        }
+        $this->buildCronActionMap()['backup']->tick();
     }
 
     public function checkResetXrayStats()
     {
-        $pac = $this->getPacConf();
-        if (!empty($pac['reset_monthly'])) {
-            $now    = time();
-            $start  = strtotime('first day of previous month midnight');
-            $period = strtotime('1 month', 0);
-
-            if (
-                !empty($start)
-                && !empty($period)
-                && $now >= $start
-            ) {
-                // Вычисляем, сколько полных периодов прошло с момента start
-                $elapsed = $now - $start;
-                $periodsElapsed = floor($elapsed / $period);
-
-                // Время последнего планового сброса статистики
-                $lastScheduledReset = $start + ($periodsElapsed * $period);
-
-                // Проверяем, делали ли уже сброс в этом периоде
-                $lastResetTime = $pac['last_reset_xray_time'] ?? 0;
-
-                // Если последний сброс был сделан до начала текущего периода - делаем сброс
-                if ($lastResetTime < $lastScheduledReset) {
-                    $pac['last_reset_xray_time'] = $now;
-                    $this->setPacConf($pac);
-                    $this->resetXrStats(1);
-                    require __DIR__ . '/config.php';
-                    foreach ($c['admin'] as $admin) {
-                        $this->send($admin, "vless: reset stats");
-                    }
-                }
-            }
-        }
+        $this->buildCronActionMap()['reset_xray']->tick();
     }
 
     public function checkLogs()
     {
-        $c = $this->getPacConf();
-        if (!empty($c['autocleanlogs'])) {
-            $now = time();
-            [$start, $period] = explode('/', $c['autocleanlogs']);
-            $start  = strtotime(trim($start));
-            $period = strtotime(trim($period), 0);
-
-            if (
-                !empty($start)
-                && !empty($period)
-                && $now >= $start
-            ) {
-                // Вычисляем, сколько полных периодов прошло с момента start
-                $elapsed = $now - $start;
-                $periodsElapsed = floor($elapsed / $period);
-
-                // Время последней плановой очистки логов
-                $lastScheduledClean = $start + ($periodsElapsed * $period);
-
-                // Проверяем, делали ли уже очистку в этом периоде
-                $lastCleanTime = $c['last_clean_logs_time'] ?? 0;
-
-                // Если последняя очистка была сделана до начала текущего периода - делаем очистку
-                if ($lastCleanTime < $lastScheduledClean) {
-                    $c['last_clean_logs_time'] = $now;
-                    $this->setPacConf($c);
-                    $this->cleanLog();
-                }
-            }
-        }
+        $this->buildCronActionMap()['cleanup_logs']->tick();
     }
 
     public function cleanQueue(): void
@@ -1748,59 +1583,12 @@ class Bot
 
     public function checkVersion()
     {
-        try {
-            require __DIR__ . '/config.php';
-            if (!empty($c['admin']) && (empty($this->time) || ((time() - $this->time) > 3600))) {
-                $this->time = time();
-                $current    = file_get_contents('/version');
-                $b          = exec('git -C / rev-parse --abbrev-ref HEAD');
-                $last       = file_get_contents("https://raw.githubusercontent.com/mercurykd/vpnbot/$b/version");
-                if (!empty($last) && $last != $this->last && $last != $current) {
-                    $this->last = $last;
-                    $diff       = array_slice(explode("\n", $last), 0, count(explode("\n", $last)) - count(explode("\n", $current)));
-                    $diff       = array_slice($diff, 0, 10);
-                    if (!empty($diff)) {
-                        exec('git -C / fetch');
-                        foreach ($c['admin'] as $k => $v) {
-                            $this->send($v, implode("\n", $diff), 0, [
-                                [
-                                    [
-                                        'text'    => 'changelog',
-                                        'web_app' => ['url' => "https://raw.githubusercontent.com/mercurykd/vpnbot/$b/version"],
-                                    ],
-                                    [
-                                        'text'          => $this->i18n('update bot'),
-                                        'callback_data' => "/applyupdatebot",
-                                    ],
-                                ]
-                            ]);
-                        }
-                        if ($this->getPacConf()['autoupdate']) {
-                            $this->input['chat'] = $this->input['from'] = $c['admin'][0];
-                            $this->applyupdatebot();
-                        }
-                    }
-                }
-            }
-        } catch (Exception $e) {
-        }
+        $this->buildCronActionMap()['version']->tick();
     }
 
     public function checkCert()
     {
-        try {
-            require __DIR__ . '/config.php';
-            if (!empty($c['admin']) && date('H') == 12 && (empty($this->time2) || ((time() - $this->time2) > 4600))) {
-                $this->time2 = time();
-                $cert = $this->expireCert();
-                if (!empty($cert) && $cert - 60 * 60 * 24 * 14 < time()) {
-                    foreach ($c['admin'] as $k => $v) {
-                        $this->send($v, "certificate expire: " . date('Y-m-d H:i:s', $cert));
-                    }
-                }
-            }
-        } catch (Exception $e) {
-        }
+        $this->buildCronActionMap()['cert']->tick();
     }
 
     public function getTime(int $seconds)
@@ -9875,6 +9663,38 @@ DNS-over-HTTPS with IP:
         $this->ports();
 
         return true;
+    }
+
+    /**
+     * @return array<string, \VpnBot\Application\Cron\CronAction>
+     */
+    public function buildCronActionMap(): array
+    {
+        static $actions;
+
+        if (is_array($actions)) {
+            return $actions;
+        }
+
+        $actions = [
+            'shutdown' => new \VpnBot\Application\Cron\ShutdownClientsAction($this),
+            'version' => new \VpnBot\Application\Cron\VersionCheckAction($this),
+            'backup' => new \VpnBot\Application\Cron\BackupScheduleAction($this),
+            'cleanup_logs' => new \VpnBot\Application\Cron\LogCleanupScheduleAction($this),
+            'reset_xray' => new \VpnBot\Application\Cron\XrayStatsResetAction($this),
+            'cert' => new \VpnBot\Application\Cron\CertificateExpiryCheckAction($this),
+            'analyze_logs' => new \VpnBot\Application\Cron\AutoAnalyzeLogsAction($this),
+            'xray_stats' => new \VpnBot\Application\Cron\XrayStatsPollAction($this),
+        ];
+
+        return $actions;
+    }
+
+    public function buildCronRunner(): \VpnBot\Application\Cron\CronRunner
+    {
+        static $runner;
+
+        return $runner ??= new \VpnBot\Application\Cron\CronRunner(array_values($this->buildCronActionMap()), 10);
     }
 
     public function ports()

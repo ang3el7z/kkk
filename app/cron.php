@@ -12,4 +12,5 @@ require __DIR__ . '/bot.php';
 require __DIR__ . '/config.php';
 require __DIR__ . '/i18n.php';
 
-(new Bot($c['key'], $i))->cron();
+$bot = new Bot($c['key'], $i);
+$bot->buildCronRunner()->runLoop();

@@ -764,7 +764,13 @@ Done:
 
 ## Task 16 - Cron Task Extraction
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Application/Cron` with `CronRunner`, a `CronAction` interface, and separate periodic action classes for shutdown, version checks, backups, log cleanup, xray stats reset, cert expiry, auto-analyze, and xray stats polling
+- `app/cron.php` now launches `CronRunner`, while old `Bot::cron` and `check*` methods remain lightweight wrappers for compatibility
+- added `tests/CronRunnerTest.php` for a one-tick dry-run without an endless loop
 
 Цель: убрать cron logic из `Bot`.
 
