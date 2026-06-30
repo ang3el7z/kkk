@@ -2,65 +2,76 @@
 
 ## Snapshot
 
-- Audit date: 2026-06-30
+- Audit date: 2026-07-01
 - File: `app/bot.php`
-- Current size: 9,838 lines, 404,175 bytes
-- Shape: legacy god-object with partial migration to `src/*`; new services/modules exist, but `Bot` still owns routing glue, large menu builders, HTTP handlers, reply/session flow, transport helpers, and runtime adapters.
+- Current size: 10,620 lines, 404,175 bytes
+- Shape: legacy god-object with partial migration to `src/*`; after Tasks 29-34 the file now acts mainly as fallback router/controller, menu presenter, transport client, runtime helper host, and temporary composition root for extracted modules.
 
 ## Largest Methods
 
 | Method | Lines | Notes |
 | --- | ---: | --- |
-| `action()` | 233-833 | Legacy regex dispatch table; biggest remaining control-flow hotspot. |
-| `subscription()` | 7759-8195 | HTTP/subscription glue mixed with redirects, template selection, headers, and HWID guard flow. |
-| `menu()` | 4862-5099 | Main dashboard/menu builder; pulls runtime state directly. |
-| `xray()` | 6792-6985 | Large Xray menu builder with stats, templates, pagination, HWID, links. |
-| `configMenu()` | 8839-9006 | Settings dashboard still assembled in `Bot`. |
-| `userXr()` | 7361-7517 | Xray user details + actions + link generation. |
-| `importFile()` | 1763-1912 | Large import flow still in `Bot`. |
-| `statusWg()` | 3189-3335 | WireGuard status/menu rendering remains local. |
+| `action()` | 242-818 | Legacy regex dispatch table still exists after `guardFeatureAccess()` and `dispatchRouter()` short-circuit. |
+| `subscription()` | 7607-8043 | Still owns config rendering, headers, redirect/return flow, and HWID/subscription delivery details. |
+| `menu()` | 4847-5084 | Main dashboard/menu builder still reads runtime/git/backup state directly. |
+| `xray()` | 6685-6878 | Xray dashboard/menu builder with stats, transport, pagination, and action buttons. |
+| `userXr()` | 7254-7410 | Xray user details, HWID controls, and link output still assembled inline. |
+| `importFile()` | 1748-1897 | Import dispatch still mixes parsing, protocol detection, and user messaging. |
+| `statusWg()` | 3174-3320 | WireGuard status/menu rendering remains local. |
+| `ports()` | 9533-9590 | Legacy ports UI still parses compose/runtime state inline despite extracted settings handlers. |
 
 ## Section Map
 
 ### 1. Action dispatch
 
 - `action()` lines 233-833
-- Status: still monolithic
-- Problem: large regex switch duplicates responsibility already started in `src/Telegram/Router.php`.
-- Follow-up: move remaining callback/message patterns into router maps + dedicated handlers.
+- `action()` lines 242-818
+- Status: still monolithic, but now front-loaded with `guardFeatureAccess()` and `dispatchRouter()`
+- Already extracted around it:
+  - `src/Telegram/Router.php`
+  - `src/Telegram/MenuActionHandler.php`
+  - `src/Telegram/SettingsActionHandler.php`
+- Problem: large regex switch still owns protocol-heavy branches after router fallback.
+- Follow-up: keep shrinking legacy cases until `action()` becomes a thin fallback or disappears.
 
 ### 2. Menu builders
 
-- Main entry: `menu()` 4862-5099
+- Main entry: `menu()` 4847-5084
 - Other large menu/render zones:
-  - `configMenu()` 8839-9006
-  - `xray()` 6792-6985
-  - `userXr()` 7361-7517
-  - `adguardMenu()` 8609-8704
-  - `ocMenu()` 6254-6329
-  - `naiveMenu()` 6140-6176
-  - `hysteriaMenu()` 6176-6204
+  - `xray()` 6685-6878
+  - `userXr()` 7254-7410
+  - `statusWg()` 3174-3320
+  - `pacMenu()` 4002-4105
+  - `adguardMenu()` 8447-8496
+  - `configMenu()` 8631-8696
+  - `ocMenu()` 6189-6222
+  - `naiveMenu()` 6105-6121
+  - `hysteriaMenu()` 6122-6138
 - Status: mixed
 - Already extracted:
   - container menu -> `src/Telegram/Menu/ContainerManagerMenuBuilder.php`
+  - config menu -> `src/Telegram/Menu/ConfigMenuBuilder.php`
+  - AdGuard/OpenConnect/NaiveProxy/Hysteria protocol menu builders -> `src/Telegram/Menu/*MenuBuilder.php`
   - feature button filtering -> `src/Telegram/Menu/MenuFilter.php`
 - Still local:
-  - main/config/protocol menus
+  - main dashboard
+  - Xray/WireGuard/PAC menu flows
   - text formatting and inline keyboard assembly
 
 ### 3. HTTP/subscription glue
 
-- `sub()` 7709-7758
-- `subscription()` 7759-8195
+- `sub()` 7602-7606
+- `subscription()` 7607-8043
 - related helpers: `choiceTemplate()`, `templateUser()`, `linkXray()`, `createRuleSet()`, `createSrs()`
 - Status: partially extracted
 - Already extracted:
+  - `/pac*` entry routing glue, landing-page orchestration, and web template rendering -> `src/Application/Pac/PacHttpController.php`
   - client lookup/origin normalization/template mutation -> `src/Module/Pac/SubscriptionModule.php`
 - Still local:
   - direct `$_GET` / `$_SERVER` access
-  - redirect/header/exit flow
-  - response rendering via `require __DIR__ . '/subscription.php'`
-  - URL construction and transport-specific delivery
+  - final config rendering for subscription formats
+  - some redirect/header/return flow
+  - URL construction and transport-specific delivery details
 
 ### 4. Module wrappers
 
@@ -76,13 +87,15 @@
   - `containerManagerMenu()`, `featureToggle()`, `featureToggleConfirm()`
 - Not thin enough yet:
   - `addxrus()`, `switchXr()`, `renXrUs()`, `delxr()`
+  - `statusWg()` and related WG menu/status helpers
   - `adgFillAllowedClients()`
   - `changeOcExpose()`, `deloc()`
+  - `importFile()`
   - `choiceTemplate()`
 
 ### 5. Runtime / SSH / config helpers
 
-- Builders/factories cluster around 9007-9773
+- Builders/factories cluster around 8769-9461
 - Low-level runtime helpers remain in `Bot`:
   - `ssh()`
   - `dockerApi()`
@@ -91,17 +104,18 @@
   - nginx/upstream mutators: `cloakNginx()`, `setUpstreamDomain*()`
   - port/runtime helpers: `ports()`, `hidePort()`, `setPort()`
 - Status: mixed responsibilities
-- Observation: extracted modules still depend on anonymous runtime adapters defined inside `Bot`, so code moved out of business logic but not out of composition root.
+- Observation: extracted modules still depend on anonymous runtime adapters defined inside `build*Runtime()` methods, so business logic moved out faster than transport/runtime composition.
 
 ### 6. DB / repository / bootstrap factories
 
-- Cluster: 9079-9773
+- Cluster: 8769-9461
 - Extracted/new factories:
   - `buildFeatureManager()`
   - `buildDatabaseBootstrapper()`
   - `buildAuditLogWriter()`
   - `buildPacSettingsRepository()`
   - `buildSqliteSettingsRepository()`
+  - `buildFeatureRuntimeFactory()`
   - module/runtime builders
 - Status: acceptable as temporary composition root
 - Caveat: `Bot` currently acts as both controller and service locator. Good temporary state, but factory sprawl makes the file longer and hides real controller debt.
@@ -111,11 +125,12 @@
 - Strong duplicate-risk zones:
   - `action()` vs `dispatchRouter()/buildRouter()/route*()`
   - `ports()/hidePort()/setPort()` vs `ComposeOverrideWriter`
+  - Telegram transport methods vs future dedicated `TelegramClient`
   - `cleanDocker()` and maintenance actions vs extracted maintenance module/runtime
   - Xray/WireGuard/OpenConnect/AdGuard menu actions that still transform configs inline after module extraction
 - Likely cleanup-only candidates after extraction tasks:
-  - old regex routes for menus/config/containers/ports
-  - direct config parsing in menu renderers once dedicated presenters/builders exist
+  - residual old regex routes once Xray/WG/import/transport slices leave `action()`
+  - direct config parsing in menu renderers once Xray/WG/PAC presenters exist
   - anonymous runtime classes inside `build*Runtime()` methods once real runtime classes move to `src/*`
 - Not safe to delete yet:
   - protocol flows still called from old dispatch paths
@@ -135,34 +150,46 @@
 - Kept: feature/container `build*` wrapper methods
   - Reason: after Task 32 they are thin facades, but still active call sites inside `Bot`.
 
+## Post-Task-34 State
+
+- Tasks 29-34 are all reflected in the current file shape:
+  - menu builders extracted for config/AdGuard/OpenConnect/NaiveProxy/Hysteria/container manager
+  - router/action handlers extracted for menu/start/container/settings slice
+  - PAC HTTP controller extracted
+  - feature/runtime bootstrap extracted into `FeatureRuntimeFactory`
+  - duplicate menu-route wrappers removed
+  - local PHP CLI SQLite warning documented outside repo code changes
+- Result: biggest remaining business hotspots are now Xray, WireGuard, import flow, Telegram transport, and low-level runtime helpers.
+
 ## Why `app/bot.php` Is Still Big
 
-1. Business logic moved only partially. Modules now own storage/config primitives, but user-flow orchestration still lives in `Bot`.
+1. Business logic moved only partially. Modules now own storage/config primitives, but user-flow orchestration for Xray/WireGuard/import still lives in `Bot`.
 2. Extraction kept backward-compatible wrappers. Good for safety, bad for file size.
-3. Composition root grew inside `Bot` instead of moving to dedicated bootstrap/factory classes.
-4. Large menu renderers were not extracted with protocol modules.
-5. HTTP/subscription surface still mixes controller, formatter, and transport logic.
+3. Telegram transport and SSH/runtime helpers still live beside controller logic.
+4. Composition root is thinner than before, but anonymous runtime adapters still keep many lines in `Bot`.
+5. HTTP/subscription rendering still mixes controller, formatter, and delivery logic.
 
 ## Proposed Follow-Up Order
 
-1. Task 29: extract menu builders/presenters from `menu()`, `configMenu()`, protocol menus.
-2. Task 30: move remaining `action()` branches into router + dedicated action handlers.
-3. Task 31: isolate HTTP/subscription controller from `sub()` / `subscription()`.
-4. Task 32: move builder/runtime wiring from `Bot` into dedicated factory/bootstrap layer.
-5. Task 33: delete stale wrappers, duplicate dispatch, and old inline config code after prior extractions land.
+1. Task 38: extract Xray user/menu/action flow. It owns the largest remaining protocol slice and will shrink both `action()` and menu/render debt.
+2. Task 39: extract WireGuard status/menu/action flow. It is the next large protocol-specific UI hotspot.
+3. Task 40: extract import flow. This removes mixed parsing + Telegram response logic from the monolith.
+4. Task 41: extract Telegram transport into a dedicated client. This separates controller logic from HTTP API plumbing.
+5. Task 42: extract runtime helpers and anonymous adapters. Do this after higher-level flow extraction so runtime refactor stays narrow.
+6. After 38-42, run a new dead-code cleanup pass before broader audits.
 
 ## Extraction Guidance
 
 - Keep `Bot` as thin facade/controller during transition.
 - Prefer one vertical slice at a time: route -> handler -> menu/presenter -> module call.
-- Extract builders/presenters before cleanup deletion; otherwise diff becomes risky.
-- Replace anonymous runtime classes with named classes only after handler/menu debt drops, or Task 32 will mix too much scope.
+- Shrink `action()` only by removing whole protocol slices, not by reshuffling regex cases in place.
+- Replace anonymous runtime classes with named classes only after handler/menu debt drops, or Task 42 will mix too much scope.
 
 ## Architecture Notes For Project Map
 
 - `app/bot.php` is no longer just "main orchestration surface"; it is currently:
-  - legacy controller/router
-  - UI/menu presenter layer
-  - HTTP subscription controller
+  - legacy fallback controller/router
+  - UI/menu presenter layer for the biggest remaining protocol flows
+  - HTTP/subscription formatter/delivery layer
   - temporary composition root for extracted modules
-  - home of remaining runtime/config helper code
+  - home of remaining Telegram transport and runtime/config helper code

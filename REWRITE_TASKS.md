@@ -1565,7 +1565,14 @@ Commit:
 
 ## Task 37 - Post-Extraction Bot Audit
 
-Status: pending
+Status: done
+
+Done:
+
+- refreshed `BOT_MONOLITH_AUDIT.md` with a 2026-07-01 snapshot of `app/bot.php` after Tasks 29-34
+- measured current file size as 10,620 lines / 404,175 bytes and updated largest-method hotspots with current line ranges
+- replaced the old follow-up order with the new extraction sequence: Xray -> WireGuard -> import -> Telegram transport -> runtime helpers
+- updated `PROJECT_MAP.md` so repo docs point to the current remaining `Bot` responsibilities and hotspots
 
 Цель: после Task 29-34 заново понять фактическое состояние `app/bot.php` и не продолжать резать монолит вслепую.
 
