@@ -19,6 +19,7 @@ final class Router
             ['pattern' => '~^/menu config$~', 'handler' => 'routeConfigMenu', 'source' => 'callback'],
             ['pattern' => '~^/menu containers$~', 'handler' => 'routeContainersMenu', 'source' => 'callback'],
             ['pattern' => '~^/featureToggle (?P<feature>[a-z0-9_]+)$~', 'handler' => 'routeFeatureToggle', 'source' => 'callback'],
+            ['pattern' => '~^/featureToggleConfirm (?P<feature>[a-z0-9_]+) (?P<action>enable|disable)$~', 'handler' => 'routeFeatureToggleConfirm', 'source' => 'callback'],
             ['pattern' => '~^/ports$~', 'handler' => 'routePorts', 'source' => 'callback'],
         ];
     }

@@ -1015,7 +1015,7 @@ Done:
 
 ## Task 22 - Container Runtime Hardening
 
-Status: pending
+Status: done
 
 Цель: снизить риск от Docker socket и Telegram-triggered compose actions.
 
@@ -1049,6 +1049,12 @@ Status: pending
 Commit:
 
 - `feat: harden container toggles`
+
+Done:
+
+- added two-step container toggle confirmation with explicit `/featureToggleConfirm <feature> <enable|disable>` callbacks before runtime changes
+- rejected unknown/locked toggle requests early and added safer user-facing runtime failure messages that state DB rollback behavior
+- added SQLite-backed toggle audit logging for actor id, feature id, requested action, result, and error text; verified rollback with a temporary `tmp/tests` check
 
 ## Task 23 - Container Status UX
 

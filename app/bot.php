@@ -21,6 +21,7 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Domain/Settings/SettingsRepository.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Compose/ComposeOverrideWriter.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/ConnectionFactory.php';
+    require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteAuditLogWriter.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteFeatureRepository.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteSettingsRepository.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Process/CommandRunner.php';
@@ -251,6 +252,9 @@ class Bot
                 break;
             case preg_match('~^/featureToggle (?P<feature>[a-z0-9_]+)$~', $this->input['callback'], $m):
                 $this->featureToggle($m['feature']);
+                break;
+            case preg_match('~^/featureToggleConfirm (?P<feature>[a-z0-9_]+) (?P<action>enable|disable)$~', $this->input['callback'], $m):
+                $this->featureToggleConfirm($m['feature'], $m['action']);
                 break;
             case preg_match('~^/changeWG (\d+)$~', $this->input['callback'], $m):
                 $this->changeWG($m[1]);
@@ -9014,30 +9018,58 @@ DNS-over-HTTPS with IP:
     public function featureToggle(string $featureId): void
     {
         try {
+            [$definition, $enabled] = $this->resolveFeatureToggleState($featureId);
+            $this->renderContainerMenuPayload(
+                $this->buildContainerManagerMenuBuilder()->buildConfirmation(
+                    $definition,
+                    $enabled,
+                    $this->featureLabel($definition),
+                    $this->i18n('back'),
+                )
+            );
+        } catch (Throwable $exception) {
+            if (! empty($this->input['callback_id'])) {
+                $this->answer($this->input['callback_id'], $this->formatFeatureToggleError($exception), true);
+            }
+        }
+    }
+
+    public function featureToggleConfirm(string $featureId, string $action): void
+    {
+        $auditResult = 'failed';
+        $auditError = null;
+
+        try {
+            [$definition, $enabled, $resolvedAction] = $this->resolveFeatureToggleState($featureId, $action);
             $manager = $this->buildFeatureManager();
 
             if ($manager === null) {
                 throw new RuntimeException('Feature manager unavailable');
             }
 
-            $states = $manager->list();
-            $enabled = $states[$featureId] ?? null;
-
-            if ($enabled === null) {
-                throw new RuntimeException('Unknown feature');
+            if ($resolvedAction === 'disable') {
+                $manager->disable($definition->id());
+            } else {
+                $manager->enable($definition->id());
             }
 
-            if ($enabled) {
-                $manager->disable($featureId);
-            } else {
-                $manager->enable($featureId);
+            $auditResult = 'success';
+
+            if (! empty($this->input['callback_id'])) {
+                $this->answer(
+                    $this->input['callback_id'],
+                    sprintf('%s %s', $this->featureLabel($definition), $resolvedAction === 'disable' ? 'disabled' : 'enabled')
+                );
             }
         } catch (Throwable $exception) {
+            $auditError = $this->formatFeatureToggleError($exception);
+
             if (! empty($this->input['callback_id'])) {
-                $this->answer($this->input['callback_id'], $exception->getMessage(), true);
+                $this->answer($this->input['callback_id'], $auditError, true);
             }
         }
 
+        $this->recordFeatureToggleAudit($featureId, $action, $auditResult, $auditError);
         $this->menu('containers');
     }
 
@@ -9079,6 +9111,26 @@ DNS-over-HTTPS with IP:
             new \VpnBot\Infrastructure\Database\ConnectionFactory(),
             $this->buildFeatureRegistry()
         );
+    }
+
+    public function buildAuditLogWriter(): ?\VpnBot\Infrastructure\Database\SqliteAuditLogWriter
+    {
+        static $writer;
+        static $resolved = false;
+
+        if ($resolved) {
+            return $writer;
+        }
+
+        $resolved = true;
+
+        try {
+            return $writer = new \VpnBot\Infrastructure\Database\SqliteAuditLogWriter(
+                $this->buildDatabaseBootstrapper()->bootstrap()
+            );
+        } catch (Throwable) {
+            return $writer = null;
+        }
     }
 
     public function buildContainerRuntime(): \VpnBot\Application\Feature\ContainerRuntime
@@ -9159,6 +9211,120 @@ DNS-over-HTTPS with IP:
             'dnstt' => $this->i18n('DNSTT'),
             default => $definition->id(),
         };
+    }
+
+    /**
+     * @return array{0: \VpnBot\Domain\Feature\FeatureDefinition, 1: bool, 2?: string}
+     */
+    public function resolveFeatureToggleState(string $featureId, ?string $requestedAction = null): array
+    {
+        $definition = $this->buildFeatureRegistry()->get($featureId);
+
+        if (! $definition->toggleable()) {
+            throw new RuntimeException('Feature is locked.');
+        }
+
+        $manager = $this->buildFeatureManager();
+
+        if ($manager === null) {
+            throw new RuntimeException('Feature manager unavailable');
+        }
+
+        $states = $manager->list();
+        $enabled = $states[$featureId] ?? null;
+
+        if (! is_bool($enabled)) {
+            throw new RuntimeException('Unknown feature.');
+        }
+
+        $expectedAction = $enabled ? 'disable' : 'enable';
+
+        if ($requestedAction === null) {
+            return [$definition, $enabled, $expectedAction];
+        }
+
+        if (! in_array($requestedAction, ['enable', 'disable'], true)) {
+            throw new RuntimeException('Unknown toggle action.');
+        }
+
+        if ($requestedAction !== $expectedAction) {
+            throw new RuntimeException('State changed. Reload container manager and try again.');
+        }
+
+        return [$definition, $enabled, $requestedAction];
+    }
+
+    /**
+     * @param array{text: string, data: array<int, array<int, array<string, string>>>} $menu
+     */
+    public function renderContainerMenuPayload(array $menu): void
+    {
+        if (! empty($this->input['callback_id'])) {
+            $this->update($this->input['chat'], $this->input['message_id'], $menu['text'], $menu['data']);
+
+            return;
+        }
+
+        $this->send($this->input['chat'], $menu['text'], $this->input['message_id'], $menu['data']);
+    }
+
+    public function formatFeatureToggleError(Throwable $exception): string
+    {
+        $message = trim($exception->getMessage());
+
+        if (str_starts_with($message, 'Unknown feature')) {
+            return 'Unknown feature request.';
+        }
+
+        if ($message === 'Feature is locked.') {
+            return 'This service cannot be toggled.';
+        }
+
+        if ($message === 'Feature manager unavailable') {
+            return 'Container manager is unavailable right now.';
+        }
+
+        if (str_starts_with($message, 'State changed.')) {
+            return $message;
+        }
+
+        if (str_starts_with($message, 'Command failed with exit code')) {
+            $lines = preg_split('~\R+~', $message) ?: [];
+            $detail = trim((string) end($lines));
+
+            return $detail !== ''
+                ? 'Toggle failed; DB state rolled back. ' . mb_substr($detail, 0, 160)
+                : 'Toggle failed; DB state rolled back.';
+        }
+
+        return 'Toggle failed; DB state rolled back.';
+    }
+
+    public function recordFeatureToggleAudit(string $featureId, string $requestedAction, string $result, ?string $errorText = null): void
+    {
+        try {
+            $writer = $this->buildAuditLogWriter();
+
+            if ($writer === null) {
+                return;
+            }
+
+            $actorId = is_numeric($this->input['from'] ?? null) ? (int) $this->input['from'] : null;
+            $payload = [
+                'feature_id' => $featureId,
+                'requested_action' => $requestedAction,
+                'result' => $result,
+                'chat_id' => $this->input['chat'] ?? null,
+                'username' => $this->input['username'] ?? null,
+            ];
+
+            if ($errorText !== null && $errorText !== '') {
+                $payload['error_text'] = $errorText;
+            }
+
+            $writer->record($actorId, 'feature_toggle', $payload);
+        } catch (Throwable) {
+        }
     }
 
     public function buildPacSettingsRepository(): \VpnBot\Domain\Settings\SettingsRepository
@@ -9679,6 +9845,13 @@ DNS-over-HTTPS with IP:
     public function routeFeatureToggle(string $featureId): bool
     {
         $this->featureToggle($featureId);
+
+        return true;
+    }
+
+    public function routeFeatureToggleConfirm(string $featureId, string $action): bool
+    {
+        $this->featureToggleConfirm($featureId, $action);
 
         return true;
     }

@@ -55,4 +55,38 @@ final class ContainerManagerMenuBuilder
             'data' => $data,
         ];
     }
+
+    /**
+     * @return array{text: string, data: array<int, array<int, array<string, string>>>}
+     */
+    public function buildConfirmation(
+        FeatureDefinition $definition,
+        bool $enabled,
+        string $label,
+        string $backLabel = 'back',
+    ): array {
+        $action = $enabled ? 'disable' : 'enable';
+        $verb = $enabled ? 'Disable' : 'Enable';
+        $status = $enabled ? 'enabled' : 'disabled';
+
+        return [
+            'text' => implode("\n", [
+                'Settings -> Container manager',
+                '',
+                sprintf('%s %s?', $verb, $label),
+                sprintf('Current state: %s', $status),
+                sprintf('Services: %s', implode(', ', $definition->services())),
+            ]),
+            'data' => [
+                [[
+                    'text' => sprintf('Confirm %s', strtolower($verb)),
+                    'callback_data' => sprintf('/featureToggleConfirm %s %s', $definition->id(), $action),
+                ]],
+                [[
+                    'text' => $backLabel,
+                    'callback_data' => '/menu containers',
+                ]],
+            ],
+        ];
+    }
 }
