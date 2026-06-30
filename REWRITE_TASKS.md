@@ -1270,7 +1270,13 @@ Done:
 
 ## Task 28 - Bot Monolith Audit And Extraction Map
 
-Status: pending
+Status: done
+
+Done:
+
+- measured `app/bot.php` at 10,151 lines / 415,047 bytes
+- added `BOT_MONOLITH_AUDIT.md` with section map, largest methods, duplicate-risk zones, and ordered follow-up extraction plan
+- updated `PROJECT_MAP.md` to describe `Bot` as controller + presenter + HTTP glue + temporary composition root
 
 Цель: понять, почему `app/bot.php` всё ещё большой: осталась настоящая бизнес-логика, wrapper/facade methods, дублированный старый код после выноса модулей или mixed responsibilities.
 

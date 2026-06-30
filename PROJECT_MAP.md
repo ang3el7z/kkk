@@ -15,7 +15,7 @@
 - `app/cron.php`: launches `VpnBot\Application\Cron\CronRunner`.
 - `app/updatepac.php`: PAC list update worker.
 - `app/backup.php`: export entrypoint.
-- `app/bot.php`: still the main orchestration surface, but now delegates feature toggles, cron actions, and protocol/storage concerns to extracted modules.
+- `app/bot.php`: still the main orchestration surface, but it also remains a large legacy controller containing regex dispatch, menu rendering, HTTP/subscription glue, runtime/config helpers, and a temporary composition root for extracted modules. See `BOT_MONOLITH_AUDIT.md`.
 
 ## Extracted Runtime Modules
 
