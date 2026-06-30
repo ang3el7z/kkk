@@ -26,7 +26,9 @@
 
 - Legacy importer remains available for old installs.
 - Existing entrypoints (`app/index.php`, `app/init.php`, `app/service.php`, `app/cron.php`) stay in place.
+- `app/config.php` remains bootstrap/admin input, not the runtime state store.
 - Generated daemon config files under `/config` remain in use for service processes, but SQLite is the source of truth for runtime state.
+- Legacy JSON state paths (`pac.json`, `clients.json`, `clients1.json`, `xray.stats`) are importer-only compatibility inputs.
 
 ## Verification
 

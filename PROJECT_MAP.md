@@ -50,8 +50,10 @@
 - WireGuard clients/state: `wireguard_instances`, `wireguard_clients`
 - Xray users/state: `xray_users`
 - Xray traffic state: `xray_stats`
-- Legacy import only: `app/config.php`, `/config/pac.json`, `/config/clients.json`, `/config/clients1.json`, `/config/xray.stats`
+- App bootstrap config: `app/config.php`
+- Legacy import only: `/config/pac.json`, `/config/clients.json`, `/config/clients1.json`, `/config/xray.stats`
 - Generated daemon config files: `/config/xray.json`, `/config/wg0.conf`, `/config/wg1.conf`, `/config/AdGuardHome.yaml`, `/config/hysteria.yaml`, `/config/ocserv.conf`, `/config/ocserv.passwd`, `/config/ssserver.json`, `/config/sslocal.json`, `/config/mtprotosecret`, `/certs/*`
+- Audit note: the legacy JSON state paths above are no longer runtime source-of-truth; Task 24 found them only in the explicit legacy importer.
 
 ## Safe Verification Commands
 

@@ -41,7 +41,8 @@ php bin/import-legacy.php --db /data/vpnbot.sqlite --config-dir /config --app-co
 docker compose config
 ```
 
-Do not rely on `/config/pac.json`, `/config/clients.json`, `/config/clients1.json`, or `/config/xray.stats` as runtime state after migration. Those paths are no longer the source of truth.
+Do not rely on `/config/pac.json`, `/config/clients.json`, `/config/clients1.json`, or `/config/xray.stats` as runtime state after migration. Those paths are importer-only compatibility inputs, not the source of truth.
+`app/config.php` remains bootstrap/admin config, while generated daemon files under `/config` stay as service outputs/inputs.
 
 Verification policy for ongoing rewrite work:
 

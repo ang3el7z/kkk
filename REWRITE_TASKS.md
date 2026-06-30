@@ -1098,7 +1098,7 @@ Done:
 
 ## Task 24 - Legacy State Audit
 
-Status: pending
+Status: done
 
 Цель: убедиться, что старые JSON/files не остаются runtime source-of-truth там, где state уже должен жить в SQLite.
 
@@ -1135,6 +1135,12 @@ rtk rg "pac\\.json|clients\\.json|clients1\\.json|xray\\.stats|file_get_contents
 Commit:
 
 - `refactor: audit legacy runtime state`
+
+Done:
+
+- audited legacy state references with `rtk rg`; targeted paths `pac.json`, `clients.json`, `clients1.json`, and `xray.stats` are now importer-only via `LegacyImporter`
+- confirmed runtime state stays in SQLite while generated daemon config files remain under `/config` only for service processes
+- updated `PROJECT_MAP.md`, `PR_SUMMARY.md`, and `readme.md` to split app bootstrap config vs importer-only legacy inputs vs generated daemon config
 
 ## Task 25 - Bot.php Slimming Phase 2
 
