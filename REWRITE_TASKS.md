@@ -798,7 +798,7 @@ Done:
 
 ## Task 17 - Remove Legacy Runtime Storage
 
-Status: pending
+Status: done
 
 Цель: убрать runtime-зависимость от старых JSON/PHP state.
 
@@ -857,3 +857,11 @@ Status: pending
 - Unit tests.
 - `docker compose config`.
 - No full stack start unless user explicitly разрешит.
+
+Done:
+
+- removed stale Bot include usage left from the feature-toggle bootstrap path
+- updated `readme.md` install/migration guidance to document SQLite runtime state, explicit legacy import, and safe verification commands
+- refreshed `PROJECT_MAP.md` to reflect extracted modules, SQLite source-of-truth tables, generated daemon config files, and current safe checks
+- added `PR_SUMMARY.md` with why / architecture / migration / compatibility / test coverage for upstream review
+- ran `php -l` on changed PHP, full `tests/*Test.php` suite, and `docker compose config`

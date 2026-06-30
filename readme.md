@@ -1,29 +1,59 @@
-telegram bot to manage servers (inside the bot)
+telegram bot to manage vpn/proxy services from Telegram.
 
-- VLESS (Reality OR Websocket)
+- VLESS (Reality / Websocket / xhttp)
 - NaiveProxy
 - OpenConnect
-- Wireguard
-- Amnezia
-- AdguardHome
+- WireGuard / Amnezia
+- AdGuardHome
 - MTProto
-- PAC
+- PAC / subscriptions
 - automatic ssl
 
 ---
+
 environment: ubuntu 22.04/24.04, debian 11/12
 
-## Install:
+## Install
 
 ```shell
 wget -O- https://raw.githubusercontent.com/mercurykd/vpnbot/master/scripts/init.sh | sh -s YOUR_TELEGRAM_BOT_KEY master
 ```
-#### Restart:
+
+Runtime state now lives in SQLite at `/data/vpnbot.sqlite`. Mounted files under `/config` are generated daemon config, certificates, or compatibility inputs for explicit import only.
+
+## Migration
+
+1. Bootstrap or update schema:
+
 ```shell
-make r
+php bin/migrate.php --db /data/vpnbot.sqlite
 ```
-#### autoload:
+
+2. Import legacy state only when you explicitly migrate an old install:
+
 ```shell
-crontab -e
+php bin/import-legacy.php --db /data/vpnbot.sqlite --config-dir /config --app-config app/config.php
 ```
-add `@reboot cd /root/vpnbot && make r` and save
+
+3. Verify compose rendering without starting the stack:
+
+```shell
+docker compose config
+```
+
+Do not rely on `/config/pac.json`, `/config/clients.json`, `/config/clients1.json`, or `/config/xray.stats` as runtime state after migration. Those paths are no longer the source of truth.
+
+## Operations
+
+- Restart stack: `make r`
+- Webhook init: `php app/init.php`
+- Cron worker: `php app/cron.php`
+- PAC refresh: `php app/updatepac.php`
+
+## Changelog
+
+### Rewrite Milestones
+
+- Feature toggles moved to SQLite-backed state with real Docker runtime integration.
+- Xray, PAC/subscription, AdGuard, OpenConnect, NaiveProxy, Shadowsocks, Hysteria, DNSTT, MTProto, cert, maintenance, and cron flows were extracted into focused modules/actions.
+- Runtime state for PAC settings, WireGuard clients, and Xray stats moved off legacy JSON state into SQLite-backed repositories.

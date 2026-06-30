@@ -10,40 +10,60 @@
 ## Entrypoints
 
 - `app/index.php`: HTTP entrypoint for Telegram webhook, PAC/subscription routes, and webapp endpoints.
-- `app/init.php`: container startup initialization: webhook, command setup, queue cleanup, port sync.
-- `app/service.php`: service container startup tasks: self-update, config sync, docker cleanup, daemon startup helpers.
-- `app/cron.php`: long-running scheduler loop.
+- `app/init.php`: startup initialization: webhook sync, command setup, queue cleanup, port sync.
+- `app/service.php`: service-side maintenance tasks and startup helpers.
+- `app/cron.php`: launches `VpnBot\Application\Cron\CronRunner`.
 - `app/updatepac.php`: PAC list update worker.
-- `app/bot.php`: current monolith. It owns routing, auth, menus, Telegram API calls, Docker API calls, SSH calls, config reads/writes, cron jobs, and protocol logic.
+- `app/backup.php`: export entrypoint.
+- `app/bot.php`: still the main orchestration surface, but now delegates feature toggles, cron actions, and protocol/storage concerns to extracted modules.
+
+## Extracted Runtime Modules
+
+- Feature toggles: `src/Application/Feature/*`
+- Cron loop/actions: `src/Application/Cron/*`
+- PAC/templates/subscriptions: `src/Module/Pac/*`
+- Xray: `src/Module/Xray/*`
+- AdGuard: `src/Module/AdGuard/*`
+- OpenConnect: `src/Module/OpenConnect/*`
+- NaiveProxy: `src/Module/NaiveProxy/*`
+- Shadowsocks: `src/Module/Shadowsocks/*`
+- Hysteria: `src/Module/Hysteria/*`
+- DNSTT: `src/Module/Dnstt/*`
+- MTProto: `src/Module/Mtproto/*`
+- Certificates: `src/Module/Cert/*`
+- Maintenance/update/logs: `src/Module/Maintenance/*`
 
 ## Runtime Services
 
-- Core, not user-toggleable: `php`, `service`, `ng`, `up`.
-- Protocol/service features: `wg`, `wg1`, `xr`, `oc`, `np`, `wp`, `proxy`, `ss`, `dnstt`, `hy`, `ad`, `tg`.
-- Networks: `default`, `xray`.
-- Volumes: `adguard`, `warp`.
+- Core, not user-toggleable: `php`, `service`, `ng`, `up`
+- Feature-managed services: `xr`, `oc`, `np`, `wp`, `proxy`, `ss`, `dnstt`, `hy`, `ad`, `tg`
+- WireGuard daemons: `wg`, `wg1`
+- Networks: `default`, `xray`
+- Volumes: `adguard`, `data`, `warp`
 
-## Current State Storage
+## Runtime State Storage
 
-- `app/config.php`: bot token, admins, debug flags.
-- `/config/pac.json`: global settings, menus, lists, feature settings.
-- `/config/clients.json`, `/config/clients1.json`: WireGuard client state.
-- `/config/xray.json`: Xray runtime config and user state.
-- `/config/xray.stats`: Xray traffic state.
-- `/config/AdGuardHome.yaml`: AdGuard settings.
-- `/config/hysteria.yaml`: Hysteria settings.
-- `/config/ocserv.conf`, `/config/ocserv.passwd`: OpenConnect settings and users.
-- Other files under `/config`, `/certs`, `/logs`, `/update` are runtime-generated or mounted config.
+- SQLite source of truth: `/data/vpnbot.sqlite`
+- Feature flags: `features`
+- PAC/global settings document: `settings.key = 'legacy.pac'`
+- Xray template: `settings.key = 'legacy.xray_config'`
+- WireGuard clients/state: `wireguard_instances`, `wireguard_clients`
+- Xray users/state: `xray_users`
+- Xray traffic state: `xray_stats`
+- Legacy import only: `app/config.php`, `/config/pac.json`, `/config/clients.json`, `/config/clients1.json`, `/config/xray.stats`
+- Generated daemon config files: `/config/xray.json`, `/config/wg0.conf`, `/config/wg1.conf`, `/config/AdGuardHome.yaml`, `/config/hysteria.yaml`, `/config/ocserv.conf`, `/config/ocserv.passwd`, `/config/ssserver.json`, `/config/sslocal.json`, `/config/mtprotosecret`, `/certs/*`
 
-## Test/Run Commands
+## Safe Verification Commands
 
-- Start stack: `make u`
-- Restart stack: `make r`
-- Stop stack: `make d`
-- Check containers: `make ps`
-- Webhook check: `make webhook`
+- Lint targeted PHP: `php -l <file>`
+- Unit tests: `php tests/<Name>Test.php`
+- Schema bootstrap/migrations: `php bin/migrate.php --db ./tmp/vpnbot-test.sqlite`
+- Explicit legacy import check: `php bin/import-legacy.php --db ./tmp/vpnbot-test.sqlite --config-dir ./config --app-config app/config.php`
+- Compose render: `docker compose config`
 
 ## Rewrite Docs
 
 - Architecture: `ARCHITECTURE_PLAN.md`
 - Migration: `MIGRATION_PLAN.md`
+- Task tracker: `REWRITE_TASKS.md`
+- PR summary: `PR_SUMMARY.md`

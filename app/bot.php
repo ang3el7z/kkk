@@ -14,7 +14,6 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Application/Cron/XrayStatsResetAction.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/DockerContainerRuntime.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/FeatureManager.php';
-    require_once dirname(__DIR__) . '/src/Application/Feature/NoopContainerRuntime.php';
     require_once dirname(__DIR__) . '/src/Bootstrap/DatabaseBootstrapper.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureDefinition.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRegistry.php';
