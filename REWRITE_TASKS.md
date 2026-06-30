@@ -1736,7 +1736,14 @@ Commit:
 
 ## Task 41 - Telegram Transport Extraction
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Telegram/TelegramClient.php` to own Telegram HTTP request/send/update/answer/delete/pin/unpin/media-send logic and message splitting
+- converted `Bot::request()`, `send()`, `splitText()`, `sendDraft()`, `image()`, `sendPhoto()`, `sendFile()`, `update()`, `answer()`, `delete()`, `pin()`, and `unpin()` into thin delegates through `buildTelegramClient()`
+- moved `setcommands()` Telegram API call construction into the new client while keeping the existing `Bot` entrypoint/facade
+- updated `PROJECT_MAP.md` and `BOT_MONOLITH_AUDIT.md` to reflect that Telegram transport no longer lives inside `Bot`
 
 Цель: вынести Telegram API transport из `Bot`, чтобы `Bot` не был HTTP client.
 

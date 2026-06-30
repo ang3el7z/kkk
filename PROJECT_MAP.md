@@ -15,7 +15,7 @@
 - `app/cron.php`: launches `VpnBot\Application\Cron\CronRunner`.
 - `app/updatepac.php`: PAC list update worker.
 - `app/backup.php`: export entrypoint.
-- `app/bot.php`: still the main orchestration surface, but after Task 40 it is best understood as a legacy fallback controller containing the remaining HWID-heavy flows, menu rendering, HTTP/subscription formatting, Telegram transport helpers, runtime/config helpers, and a temporary composition root for extracted modules. See `BOT_MONOLITH_AUDIT.md`.
+- `app/bot.php`: still the main orchestration surface, but after Task 41 it is best understood as a legacy fallback controller containing the remaining HWID-heavy flows, menu rendering, HTTP/subscription formatting, runtime/config helpers, and a temporary composition root for extracted modules. See `BOT_MONOLITH_AUDIT.md`.
 
 ## Extracted Runtime Modules
 
@@ -24,11 +24,12 @@
 - Telegram menu builders extracted so far: `src/Telegram/Menu/ContainerManagerMenuBuilder.php`, `ConfigMenuBuilder.php`, `AdGuardMenuBuilder.php`, `OpenConnectMenuBuilder.php`, `NaiveProxyMenuBuilder.php`, `HysteriaMenuBuilder.php`
 - Telegram action routing extracted so far: `src/Telegram/Router.php`, `MenuActionHandler.php`, `SettingsActionHandler.php` now cover menu/start navigation, feature toggle callbacks, and port-settings entry handlers before `Bot::action()` falls back to the legacy switch
 - PAC HTTP glue extracted so far: `src/Application/Pac/PacHttpController.php` now owns `/pac*` entry routing glue, web template rendering, zapret list delivery, and subscription landing-page orchestration; `Bot::subscription()` still contains the heavy config rendering logic
+- Telegram transport extracted so far: `src/Telegram/TelegramClient.php` now owns request/send/update/answer/delete/pin/unpin/media-send/message-splitting glue; `Bot` keeps thin delegating facades
 - Feature/container factory wiring extracted so far: `src/Bootstrap/FeatureRuntimeFactory.php` now owns `FeatureRegistry`, DB bootstrapper, feature repository/manager, audit writer, container runtime, and container-manager service wiring; `Bot` keeps thin delegating `build*` facades
 - Xray UI/action flow extracted so far: `src/Module/Xray/XrayBotFlow.php` now owns `xray()`, `userXr()`, template choice/user screens, and user add/toggle/rename/delete orchestration; `Bot` keeps thin delegates
 - WireGuard UI/action flow extracted so far: `src/Module/WireGuard/WireGuardBotFlow.php` now owns `statusWg()`, `getClient()`, `getClients()`, vless-link orchestration, default DNS/MTU prompts, subnet screens, and AllowedIPs screens; `Bot` keeps thin delegates
 - Import flow extracted so far: `src/Application/Import/ImportFlow.php` now owns import prompt/payload loading/protocol dispatch/finalization; `Bot::import()` and `Bot::importFile()` are thin delegates
-- Post-Task-40 audit: biggest remaining `Bot` hotspots are `action()`, `subscription()`, `menu()`, `hwidUser()`, `ports()`, and `changeTransport()`; next extraction order is Telegram transport -> runtime helpers -> post-extraction cleanup
+- Post-Task-41 audit: biggest remaining `Bot` hotspots are `action()`, `subscription()`, `menu()`, `hwidUser()`, `ports()`, and `changeTransport()`; next extraction order is runtime helpers -> post-extraction cleanup
 - PAC/templates/subscriptions: `src/Module/Pac/*`
 - Xray: `src/Module/Xray/*`
 - AdGuard: `src/Module/AdGuard/*`

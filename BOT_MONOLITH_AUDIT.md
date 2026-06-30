@@ -4,8 +4,8 @@
 
 - Audit date: 2026-07-01
 - File: `app/bot.php`
-- Current size: 9,513 lines, 356,309 bytes
-- Shape: legacy god-object with partial migration to `src/*`; after Task 40 Xray, the main WireGuard menu/status/action slice, and import dispatch now live in dedicated services, while `Bot` remains a fallback router/controller, menu presenter, transport client, runtime helper host, and temporary composition root.
+- Current size: 9,376 lines, 351,602 bytes
+- Shape: legacy god-object with partial migration to `src/*`; after Task 41 Xray, the main WireGuard menu/status/action slice, import dispatch, and Telegram transport now live in dedicated services, while `Bot` remains a fallback router/controller, menu presenter, runtime helper host, and temporary composition root.
 
 ## Largest Methods
 
@@ -100,12 +100,11 @@
 - Low-level runtime helpers remain in `Bot`:
   - `ssh()`
   - `dockerApi()`
-  - `request()`
-  - `send()/update()/answer()/delete()/pin()/unpin()`
   - nginx/upstream mutators: `cloakNginx()`, `setUpstreamDomain*()`
   - port/runtime helpers: `ports()`, `hidePort()`, `setPort()`
 - Status: mixed responsibilities
-- Observation: extracted modules still depend on anonymous runtime adapters defined inside `build*Runtime()` methods, so business logic moved out faster than transport/runtime composition.
+- Transport note: `src/Telegram/TelegramClient.php` now owns Telegram HTTP API glue; `Bot` keeps thin delegating wrappers for compatibility.
+- Observation: extracted modules still depend on anonymous runtime adapters defined inside `build*Runtime()` methods, so business logic moved out faster than runtime composition.
 
 ### 6. DB / repository / bootstrap factories
 
@@ -163,21 +162,20 @@
   - Xray dashboard/user/template/action flow extracted into `src/Module/Xray/XrayBotFlow.php`
   - WireGuard status/client/vless-link/default-DNS/default-MTU/subnet/AllowedIPs flow extracted into `src/Module/WireGuard/WireGuardBotFlow.php`
   - import prompt/payload loading/protocol dispatch/finalization extracted into `src/Application/Import/ImportFlow.php`
-- Result: biggest remaining business hotspots are now Telegram transport, subscription rendering, HWID screens, and low-level runtime helpers.
+- Result: biggest remaining business hotspots are now subscription rendering, HWID screens, and low-level runtime helpers.
 
 ## Why `app/bot.php` Is Still Big
 
 1. Business logic moved only partially. Modules now own storage/config primitives, but some Xray-adjacent HWID/transport screens still live in `Bot`.
 2. Extraction kept backward-compatible wrappers. Good for safety, bad for file size.
-3. Telegram transport and SSH/runtime helpers still live beside controller logic.
+3. SSH/runtime helpers still live beside controller logic.
 4. Composition root is thinner than before, but anonymous runtime adapters still keep many lines in `Bot`.
 5. HTTP/subscription rendering still mixes controller, formatter, and delivery logic.
 
 ## Proposed Follow-Up Order
 
-1. Task 41: extract Telegram transport into a dedicated client. This now gives the biggest controller/HTTP separation win.
-2. Task 42: extract runtime helpers and anonymous adapters. Do this after transport extraction so runtime refactor stays narrow.
-3. After 41-42, run a new dead-code cleanup pass before broader audits.
+1. Task 42: extract runtime helpers and anonymous adapters. This is now the clearest remaining infrastructure-heavy slice.
+2. After 42, run a new dead-code cleanup pass before broader audits.
 
 ## Extraction Guidance
 
@@ -193,4 +191,4 @@
   - UI/menu presenter layer for the remaining PAC/HWID-heavy flows
   - HTTP/subscription formatter/delivery layer
   - temporary composition root for extracted modules
-  - home of remaining Telegram transport and runtime/config helper code
+  - home of remaining runtime/config helper code
