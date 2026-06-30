@@ -742,6 +742,16 @@ Done:
 - `Bot` now delegates MTProto secret/domain/adtag persistence, restart logic, export/import state, and menu/link rendering through the extracted module instead of mutating files inline
 - added `tests/MtprotoModuleTest.php` for config persistence, adtag validation, restart command generation, and link/menu rendering coverage
 
+## Task 15.9 - Cert/SSL
+
+Status: done
+
+Done:
+
+- added `src/Module/Cert` with certificate store, runtime interface, and module facade for letsencrypt domain collection, bundle splitting, persisted pair management, nginx cert-type parsing, and certificate inspection helpers
+- `Bot` now delegates SSL import/export state, bundle persistence, letsencrypt bundle retrieval, delete flow, and nginx cert-type/expiry/domain reads through the extracted certificate module instead of mutating cert files inline
+- added `tests/CertificateModuleTest.php` for letsencrypt domain expansion, bundle parsing, persisted pair lifecycle, and cert-type parsing coverage
+
 ## Task 16 - Cron Task Extraction
 
 Status: pending

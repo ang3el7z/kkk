@@ -42,6 +42,9 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/Mtproto/MtprotoConfigStore.php';
     require_once dirname(__DIR__) . '/src/Module/Mtproto/MtprotoModule.php';
     require_once dirname(__DIR__) . '/src/Module/Mtproto/MtprotoRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Cert/CertificateStore.php';
+    require_once dirname(__DIR__) . '/src/Module/Cert/CertificateModule.php';
+    require_once dirname(__DIR__) . '/src/Module/Cert/CertificateRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksConfigStore.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksModule.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksRuntime.php';
@@ -1909,10 +1912,7 @@ class Bot
             'ad'  => yaml_parse_file($this->adguard),
             'pac' => $this->getPacConf(),
             'hwid' => file_exists($this->hwid) ? (json_decode(file_get_contents($this->hwid), true) ?: []) : [],
-            'ssl' => file_exists('/certs/cert_private') && preg_match('~BEGIN PRIVATE KEY~', file_get_contents('/certs/cert_private')) ? [
-                'private' => file_get_contents('/certs/cert_private'),
-                'public'  => file_get_contents('/certs/cert_public'),
-            ] : false,
+            'ssl' => $this->buildCertificateModule()->loadCertificatePair(),
             'dnstt' => $this->buildDnsttModule()->loadKeyPair(),
             'mtproto'       => $this->buildMtprotoModule()->loadConfig()['secret'],
             'mtprotodomain' => $this->buildMtprotoModule()->loadConfig()['domain'],
@@ -1959,8 +1959,7 @@ class Bot
             if (!empty($json['ssl'])) {
                 $out[] = 'update certificates';
                 $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                file_put_contents('/certs/cert_private', $json['ssl']['private']);
-                file_put_contents('/certs/cert_public', $json['ssl']['public']);
+                $this->buildCertificateModule()->saveCertificatePair($json['ssl']);
             }
             // pac
             if (!empty($json['pac'])) {
@@ -2488,8 +2487,7 @@ class Bot
 
     public function deleteSSL($notmenu = false)
     {
-        unlink('/certs/cert_private');
-        unlink('/certs/cert_public');
+        $this->buildCertificateModule()->deleteCertificatePair();
         $conf = $this->getPacConf();
         unset($conf['letsencrypt']);
         $this->setPacConf($conf);
@@ -2509,21 +2507,30 @@ class Bot
     public function setSSL($name)
     {
         $conf = $this->getPacConf();
+        $bundle = null;
+
         switch ($name) {
             case 'letsencrypt':
                 $out[] = 'Install certificate:';
                 $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $adguardClient = $conf['adguardkey'] ? "-d {$conf['adguardkey']}.{$conf['domain']}" : '';
-                $oc = $this->getHashSubdomain('oc');
-                $np = $this->getHashSubdomain('np');
-                exec("certbot certonly --force-renew --preferred-chain 'ISRG Root X1' -n --agree-tos --email mail@{$conf['domain']} -d {$conf['domain']}" . ($oc ? " -d $oc.{$conf['domain']}" : '') . ($np ? " -d $np.{$conf['domain']}" : '') . " $adguardClient --webroot -w /certs/ --logs-dir /logs --max-log-backups 0 2>&1", $out, $code);
-                if ($code > 0) {
+                $domains = $this->buildCertificateModule()->buildLetsEncryptDomains(
+                    (string) ($conf['domain'] ?? ''),
+                    (string) ($conf['adguardkey'] ?? ''),
+                    (string) $this->getHashSubdomain('oc'),
+                    (string) $this->getHashSubdomain('np')
+                );
+                $result = $this->buildCertificateRuntime()->obtainLetsEncryptBundle(
+                    (string) ($conf['domain'] ?? ''),
+                    $domains
+                );
+                $out = array_merge($out, $result['output']);
+                if ($result['exit_code'] > 0) {
                     $this->send($this->input['chat'], "ERROR\n" . implode("\n", $out));
                     break;
                 }
                 $out[] = 'Generate bundle';
                 $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $bundle = file_get_contents("/etc/letsencrypt/live/{$conf['domain']}/privkey.pem") . file_get_contents("/etc/letsencrypt/live/{$conf['domain']}/fullchain.pem");
+                $bundle = $result['bundle'];
                 $conf['letsencrypt'] = 'letsencrypt';
                 break;
             case 'self':
@@ -2532,10 +2539,11 @@ class Bot
                 $conf['letsencrypt'] = 'self';
                 break;
         }
-        if (preg_match('~[^\s]+BEGIN PRIVATE KEY.+?END PRIVATE KEY[^\s]+~s', $bundle, $m)) {
+        $pair = is_string($bundle) ? $this->buildCertificateModule()->splitBundle($bundle) : null;
+
+        if ($pair !== null) {
             $this->setPacConf($conf);
-            file_put_contents('/certs/cert_private', $m[0]);
-            file_put_contents('/certs/cert_public', preg_replace('~[^\s]+BEGIN PRIVATE KEY.+?END PRIVATE KEY[^\s]+~s', '', $bundle));
+            $this->buildCertificateModule()->saveCertificatePair($pair);
             $this->adguardSync();
             $this->cloakNginx();
         } else {
@@ -8934,17 +8942,12 @@ DNS-over-HTTPS with IP:
 
     public function expireCert()
     {
-        $c = openssl_x509_read(file_get_contents("/certs/cert_public"));
-        return openssl_x509_parse($c)["validTo_time_t"] ?: false;
+        return $this->buildCertificateModule()->certificateExpiry();
     }
 
     public function domainsCert()
     {
-        $domains = openssl_x509_parse(openssl_x509_read(file_get_contents("/certs/cert_public")))['extensions']["subjectAltName"];
-        if (empty($domains)) {
-            return false;
-        }
-        return array_map(fn($e) => trim($e), explode(',', str_replace('DNS:', '', $domains)));
+        return $this->buildCertificateModule()->certificateDomains();
     }
 
     public function updatebot()
@@ -9581,6 +9584,57 @@ DNS-over-HTTPS with IP:
         return $module ??= new \VpnBot\Module\Mtproto\MtprotoModule(
             new \VpnBot\Module\Mtproto\MtprotoConfigStore(),
             $this->buildMtprotoRuntime()
+        );
+    }
+
+    public function buildCertificateRuntime(): \VpnBot\Module\Cert\CertificateRuntime
+    {
+        static $runtime;
+
+        return $runtime ??= new class ($this) implements \VpnBot\Module\Cert\CertificateRuntime {
+            public function __construct(
+                private readonly Bot $bot,
+            ) {
+            }
+
+            public function obtainLetsEncryptBundle(string $primaryDomain, array $domains): array
+            {
+                $arguments = implode(' ', array_map(
+                    static fn (string $domain): string => '-d ' . $domain,
+                    $domains
+                ));
+                $output = [];
+                $command = "certbot certonly --force-renew --preferred-chain 'ISRG Root X1' -n --agree-tos --email mail@$primaryDomain $arguments --webroot -w /certs/ --logs-dir /logs --max-log-backups 0 2>&1";
+                exec($command, $output, $exitCode);
+
+                $bundle = null;
+
+                if ($exitCode === 0) {
+                    $bundle = file_get_contents("/etc/letsencrypt/live/$primaryDomain/privkey.pem")
+                        . file_get_contents("/etc/letsencrypt/live/$primaryDomain/fullchain.pem");
+                }
+
+                return [
+                    'bundle' => $bundle,
+                    'output' => $output,
+                    'exit_code' => $exitCode,
+                ];
+            }
+
+            public function loadNginxConfig(): string
+            {
+                return $this->bot->ssh('cat /etc/nginx/nginx.conf', 'ng');
+            }
+        };
+    }
+
+    public function buildCertificateModule(): \VpnBot\Module\Cert\CertificateModule
+    {
+        static $module;
+
+        return $module ??= new \VpnBot\Module\Cert\CertificateModule(
+            new \VpnBot\Module\Cert\CertificateStore(),
+            $this->buildCertificateRuntime()
         );
     }
 
@@ -10374,9 +10428,9 @@ DNS-over-HTTPS with IP:
 
     public function nginxGetTypeCert()
     {
-        $conf = $this->ssh('cat /etc/nginx/nginx.conf', 'ng');
-        preg_match("/#~([^\s]+)/", $conf, $m);
-        return $m[1];
+        return $this->buildCertificateModule()->parseCertificateType(
+            $this->buildCertificateRuntime()->loadNginxConfig()
+        );
     }
 
     public function readStatus()
