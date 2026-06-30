@@ -1232,3 +1232,363 @@ Status: deferred
 Commit:
 
 - `docs: add smoke test report`
+
+## Task 27 - Goal Prompt Runbook
+
+Status: done
+
+Цель: сохранить универсальный Goal prompt в репозитории, чтобы workflow можно было запускать не только через глобальный skill, но и через repo-local prompt.
+
+Сделать:
+
+- Добавить `GOAL_PROMPT_NEW_TASKS.md`.
+- Prompt должен быть универсальным:
+  - читать `PROJECT_MAP.md`, `ARCHITECTURE_PLAN.md`, `MIGRATION_PLAN.md`, `REWRITE_TASKS.md`;
+  - искать первую `Status: pending`;
+  - выполнять задачи по порядку;
+  - один task = один commit + push;
+  - соблюдать tmp-only testing policy;
+  - не запускать `make u`, `make r`, `docker compose up`.
+
+Проверка:
+
+- `rtk read GOAL_PROMPT_NEW_TASKS.md`
+- `rtk git status`
+
+Не делать:
+
+- Не дублировать task-specific список, который устареет.
+
+Commit:
+
+- `docs: add reusable goal prompt`
+
+Done:
+
+- added `GOAL_PROMPT_NEW_TASKS.md` as a repo-local universal workflow prompt
+- global `vpnbot-goal` skill can read this file when present, while `REWRITE_TASKS.md` remains source of truth
+
+## Task 28 - Bot Monolith Audit And Extraction Map
+
+Status: pending
+
+Цель: понять, почему `app/bot.php` всё ещё большой: осталась настоящая бизнес-логика, wrapper/facade methods, дублированный старый код после выноса модулей или mixed responsibilities.
+
+Сделать:
+
+- Замерить текущий размер `app/bot.php`.
+- Составить карту крупных зон внутри `app/bot.php`:
+  - action dispatch;
+  - menu builders;
+  - HTTP/subscription glue;
+  - module wrappers;
+  - runtime/SSH/config helpers;
+  - DB/repository/bootstrap factories;
+  - dead/duplicate code candidates.
+- Проверить, где код уже вынесен в `src/*`, но старый код мог остаться дубликатом.
+- Создать `BOT_MONOLITH_AUDIT.md`:
+  - топ самых больших methods/sections;
+  - что уже facade/wrapper и можно оставить временно;
+  - что дублируется и можно удалить;
+  - какие зоны нужно выносить следующими;
+  - proposed follow-up tasks with order.
+- Обновить `PROJECT_MAP.md`, если audit уточняет архитектуру.
+
+Проверка:
+
+- docs-only expected
+- `rtk git status`
+- если менялся PHP: `php -l` changed PHP
+
+Не делать:
+
+- Не переписывать `app/bot.php` в этой задаче.
+- Не удалять код без отдельной extraction/cleanup task.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `docs: audit bot monolith`
+
+## Task 29 - Bot Menu Extraction Pass
+
+Status: pending
+
+Цель: вынести следующий крупный пласт Telegram menu building из `app/bot.php` в отдельные menu builder classes.
+
+Условие старта:
+
+- Task 28 completed.
+- Выбраны конкретные menu sections из `BOT_MONOLITH_AUDIT.md`.
+
+Сделать:
+
+- Вынести выбранные menu builders в `src/Telegram/Menu/*` или module-local menu builders.
+- Оставить callback_data, тексты, i18n keys и порядок кнопок без изменений.
+- `Bot` должен вызывать builder/facade, а не содержать массивы меню inline.
+- Если есть дублированные old menu helpers после выноса, удалить только очевидный dead code.
+- Обновить `PROJECT_MAP.md`.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не менять UX.
+- Не трогать container runtime/storage.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `refactor: extract bot menu builders`
+
+## Task 30 - Bot Action Handler Extraction Pass
+
+Status: pending
+
+Цель: уменьшить giant action/switch layer: перенести выбранные callback/action handlers из `Bot` в controller/application classes.
+
+Условие старта:
+
+- Task 28 completed.
+- Выбраны конкретные action groups из `BOT_MONOLITH_AUDIT.md`.
+
+Сделать:
+
+- Вынести 1-2 изолированные action groups в `src/Telegram/*` или `src/Application/*`.
+- `Router`/`Bot` остаются thin dispatch/facade layer.
+- Сохранить callback_data и user-visible behavior.
+- Не смешивать разные protocol domains в один diff.
+- Обновить `PROJECT_MAP.md`.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не переписывать весь `Bot::action()` за один task.
+- Не менять feature toggles/runtime behavior без причины.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `refactor: extract bot action handlers`
+
+## Task 31 - Bot HTTP And Subscription Glue Extraction
+
+Status: pending
+
+Цель: вынести HTTP/subscription/webhook-adjacent glue из `Bot`, чтобы entrypoints и subscription flows были отдельным application layer.
+
+Условие старта:
+
+- Task 28 completed.
+- Audit показал, какие HTTP/subscription methods безопасно отделить.
+
+Сделать:
+
+- Вынести выбранные subscription/PAC HTTP handlers в `src/Application/*` или `src/Module/Pac/*`.
+- `app/index.php`/`Bot` должны делегировать в новый service/facade.
+- Сохранить URLs, headers, response formats и subscription output.
+- Обновить `PROJECT_MAP.md`.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не менять формат subscription links.
+- Не запускать full stack.
+
+Commit:
+
+- `refactor: extract subscription glue`
+
+## Task 32 - Bot Runtime Factory Cleanup
+
+Status: pending
+
+Цель: вынести build/factory/bootstrap методы из `Bot`, чтобы зависимости создавались в dedicated bootstrap/container layer, а не внутри монолита.
+
+Условие старта:
+
+- Task 28 completed.
+- Audit подтвердил, какие `build*`/factory methods можно вынести без поведения change.
+
+Сделать:
+
+- Перенести DB/repository/module/runtime factory wiring в `src/Bootstrap/*` или small factory classes.
+- `Bot` получает готовые collaborators или thin factory facade.
+- Не менять runtime paths: `/config`, `/data`, `/logs`, `/docker/compose`.
+- Обновить `PROJECT_MAP.md`.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не менять storage semantics.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `refactor: extract bot factories`
+
+## Task 33 - Bot Dead Code And Duplicate Cleanup
+
+Status: pending
+
+Цель: после audit/extractions удалить дублированный или мертвый код, который остался в `app/bot.php` после выноса модулей.
+
+Условие старта:
+
+- Task 28 completed.
+- Дубликаты/мертвый код перечислены в `BOT_MONOLITH_AUDIT.md`.
+
+Сделать:
+
+- Удалять только явно доказанный dead/duplicate code.
+- Сохранять wrappers, если они нужны для compatibility или снижения риска.
+- После удаления обновить `BOT_MONOLITH_AUDIT.md` status по каждому удаленному item.
+- Замерить размер `app/bot.php` до/после.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- targeted temporary tmp checks only if useful
+
+Не делать:
+
+- Не удалять код по догадке.
+- Не менять user-visible behavior.
+- Не запускать full stack.
+
+Commit:
+
+- `refactor: remove bot duplicate code`
+
+## Task 34 - Local PHP SQLite Warning Audit
+
+Status: pending
+
+Цель: разобраться с local warning `Module "pdo_sqlite" is already loaded` / `Module "sqlite3" is already loaded`, не маскируя его через `.gitignore` или `tmp`.
+
+Контекст:
+
+- Warning не связан с gitignore/tmp.
+- Текущий local `php --ini` показывает duplicate CLI config outside repo:
+  - `C:\Users\Ang3el\scoop\persist\php\cli\php.ini`
+  - `C:\Users\Ang3el\scoop\apps\php\current\cli\php.ini`
+
+Сделать:
+
+- Проверить, вызывает ли warning repo config или только local PHP CLI environment.
+- Если причина внутри repo config, исправить repo config.
+- Если причина outside repo, не менять repo code; добавить короткую note в docs/troubleshooting or `PROJECT_MAP.md`.
+- Не трогать пользовательский global PHP config без отдельного явного разрешения.
+
+Проверка:
+
+- `php --ini`
+- `php -m`
+- `php -l` one known file
+- `docker compose config`
+
+Не делать:
+
+- Не добавлять warning output в `.gitignore`.
+- Не прятать warning в tmp.
+- Не редактировать global PHP config без explicit user approval.
+
+Commit:
+
+- `docs: document local php warning`
+
+## Task 35 - Sanitized Real Smoke Report
+
+Status: deferred
+
+Цель: когда продукт будет достаточно готов для установки, выполнить реальный smoke и заполнить sanitized report без секретов.
+
+Условие старта:
+
+- Пользователь явно разрешил real VPS/device smoke.
+- Есть готовый build/branch, который можно ставить на VPS.
+
+Сделать:
+
+- Выполнить `SMOKE_TEST_PLAN.md`.
+- Заполнить `SMOKE_TEST_REPORT.md`.
+- Удалить или замаскировать secrets:
+  - Telegram token;
+  - public/private keys;
+  - личные IP/домены, если пользователь не разрешил;
+  - screenshots with sensitive data.
+- Зафиксировать pass/fail/partial по каждому scenario.
+- Commit sanitized report.
+
+Проверка:
+
+- real VPS
+- real Telegram bot
+- real Docker states
+- real clients/devices
+
+Не делать:
+
+- Не делать fake green.
+- Не коммитить secrets.
+
+Commit:
+
+- `docs: add sanitized smoke report`
+
+## Task 36 - Smoke Bug Follow-Up Tasks
+
+Status: deferred
+
+Цель: после реального smoke не чинить всё хаотично, а превратить найденные баги в отдельные ordered tasks.
+
+Условие старта:
+
+- Task 35 completed.
+- В `SMOKE_TEST_REPORT.md` есть failures/partial results.
+
+Сделать:
+
+- Для каждого failure создать отдельную task в `REWRITE_TASKS.md`.
+- Указать:
+  - scenario;
+  - expected/actual;
+  - affected feature/container/protocol;
+  - files likely involved;
+  - safe verification;
+  - no full stack unless explicitly allowed.
+- Расставить порядок: blockers first, polish last.
+
+Проверка:
+
+- docs-only expected
+- `rtk git status`
+
+Не делать:
+
+- Не чинить bugs в этой задаче.
+- Не коммитить sensitive smoke evidence.
+
+Commit:
+
+- `docs: add smoke follow-up tasks`
