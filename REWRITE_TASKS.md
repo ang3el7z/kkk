@@ -1186,9 +1186,15 @@ Done:
 
 ## Task 26 - Real Device Smoke Report
 
-Status: pending
+Status: deferred
 
-Цель: зафиксировать результат реальной проверки на VPS и устройствах.
+Цель: зафиксировать результат реальной проверки на VPS и устройствах после завершения локального rewrite workflow.
+
+Примечание:
+
+- Эта задача не должна блокировать завершение локального refactor/rewrite workflow внутри репозитория.
+- Эта задача остается обязательным release gate перед реальным использованием, выкладкой или финальным объявлением production readiness.
+- Пока реальный smoke не выполнен, нельзя делать fake green и нельзя утверждать, что проверка на устройствах пройдена.
 
 Сделать:
 
@@ -1220,7 +1226,7 @@ Status: pending
 
 Не делать:
 
-- Не считать workflow готовым без реального smoke.
+- Не считать release/deploy/production readiness готовыми без реального smoke.
 - Не коммитить secrets, tokens, IPs, private keys, screenshots with sensitive data.
 
 Commit:
