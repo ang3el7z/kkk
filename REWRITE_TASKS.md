@@ -1693,7 +1693,14 @@ Commit:
 
 ## Task 40 - Import Flow Extraction
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Application/Import/ImportFlow.php` to own import prompt, payload loading, protocol-specific import dispatch, progress updates, and finalization
+- converted `Bot::import()` and `Bot::importFile()` into thin delegates through `buildImportFlow()`
+- updated fallback `require_once` loading and kept maintenance-triggered import entrypoints working through the new service
+- refreshed `BOT_MONOLITH_AUDIT.md` and `PROJECT_MAP.md` to reflect the reduced `Bot` size and the next extraction order
 
 Цель: вынести большой import flow из `Bot`, чтобы import parsing/dispatch не жил в legacy god-object.
 

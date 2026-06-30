@@ -12,6 +12,7 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Application/Cron/VersionCheckAction.php';
     require_once dirname(__DIR__) . '/src/Application/Cron/XrayStatsPollAction.php';
     require_once dirname(__DIR__) . '/src/Application/Cron/XrayStatsResetAction.php';
+    require_once dirname(__DIR__) . '/src/Application/Import/ImportFlow.php';
     require_once dirname(__DIR__) . '/src/Application/Pac/PacHttpController.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/ContainerManagerService.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/DockerContainerRuntime.php';
@@ -1733,168 +1734,12 @@ class Bot
 
     public function import()
     {
-        $r = $this->send(
-            $this->input['chat'],
-            "@{$this->input['username']} send the export file:",
-            $this->input['message_id'],
-            reply: 'send the export file:',
-        );
-        $_SESSION['reply'][$r['result']['message_id']] = [
-            'start_message'  => $this->input['message_id'],
-            'start_callback' => $this->input['callback_id'],
-            'callback'       => 'importFile',
-            'args'           => [],
-        ];
+        $this->buildImportFlow()->promptImport();
     }
 
     public function importFile($file = false)
     {
-        if (!empty($file)) {
-            $json = json_decode(file_get_contents($file), true);
-        } else {
-            $r    = $this->request('getFile', ['file_id' => $this->input['file_id']]);
-            $json = json_decode(file_get_contents($this->file . $r['result']['file_path']), true);
-        }
-        if (empty($json) || !is_array($json)) {
-            $this->answer($this->input['callback_id'], 'error', true);
-        } else {
-            // certs
-            if (!empty($json['ssl'])) {
-                $out[] = 'update certificates';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->buildCertificateModule()->saveCertificatePair($json['ssl']);
-            }
-            // pac
-            if (!empty($json['pac'])) {
-                $out[] = 'update pac';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                if ($this->getPacConf()['amnezia'] != $json['pac']['amnezia']) {
-                    $switch_amnezia = 1;
-                }
-                if ($this->getPacConf()['wg1_amnezia'] != $json['pac']['wg1_amnezia']) {
-                    $switch_wg1amnezia = 1;
-                }
-                $this->setPacConf($json['pac']);
-                $out[] = 'update naiveproxy';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->restartNaive();
-                $this->pacUpdate('1');
-            }
-            // wg
-            if (!empty($json['wg'])) {
-                $out[] = 'update wireguard';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->wg = 0;
-                $this->saveClients($json['wg']['clients']);
-                $this->restartWG($this->createConfig($json['wg']['server']), $switch_amnezia);
-                $this->iptablesWG();
-            }
-            // wg1
-            if (!empty($json['wg1'])) {
-                $out[] = 'update wireguard 1';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->wg = 1;
-                $this->saveClients($json['wg1']['clients']);
-                $this->restartWG($this->createConfig($json['wg1']['server']), $switch_wg1amnezia);
-                $this->iptablesWG();
-            }
-            // ad
-            if (!empty($json['ad'])) {
-                $out[] = 'update adguard';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->stopAd();
-                yaml_emit_file($this->adguard, $json['ad']);
-                $this->startAd();
-            }
-            // ss
-            if (!empty($json['ss'])) {
-                $out[] = 'update shadowsocks server';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->buildShadowsocksModule()->saveServerAndRestart($json['ss']);
-            }
-            // sl
-            if (!empty($json['sl'])) {
-                $out[] = 'update shadowsocks proxy';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->buildShadowsocksModule()->saveLocalAndRestart($json['sl']);
-            }
-            // mtproto
-            if (!empty($json['mtproto'])) {
-                $out[] = 'update mtproto';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->buildMtprotoModule()->saveConfig([
-                    'secret' => (string) $json['mtproto'],
-                    'domain' => (string) ($json['mtprotodomain'] ?? ''),
-                    'adtag' => (string) trim($json['mtprotoadtag'] ?? ''),
-                ]);
-                $this->restartTG();
-            }
-            // hwid
-            if (array_key_exists('hwid', $json)) {
-                $out[] = 'update hwid devices';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $data = is_array($json['hwid']) ? $json['hwid'] : [];
-                file_put_contents($this->hwid, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-            }
-            // xray
-            if (!empty($json['xray'])) {
-                $out[] = 'update xray';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->restartXray($json['xray']);
-                $this->adguardXrayClients();
-                $this->setUpstreamDomain($json['pac']['transport'] != 'Reality' ? 't' : ($json['pac']['reality']['domain'] ?: $json['xray']['inbounds'][0]['streamSettings']['realitySettings']['serverNames'][0]));
-            }
-            // xraystats
-            if (!empty($json['xraystats'])) {
-                $out[] = 'update xray stats';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->setXrayStats($json['xraystats']);
-            }
-            // ocserv
-            if (!empty($json['oc'])) {
-                $out[] = 'update ocserv';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                file_put_contents('/config/ocserv.passwd', $json['ocu']);
-                $this->restartOcserv($json['oc']);
-            }
-            // hysteria
-            if (!empty($json['hy'])) {
-                $out[] = 'update hysteria';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $config = $this->buildHysteriaModule()->syncPassword(
-                    $json['hy'],
-                    (string) ($this->getPacConf()['hysteria_pass'] ?? '')
-                );
-                $this->buildHysteriaModule()->saveAndRestart(
-                    $config,
-                    !empty($this->getPacConf()['hysteria_pass'])
-                );
-            }
-            if (!empty($json['pac']['domain'])) {
-                $this->setUpstreamDomainOcserv($json['pac']['domain']);
-                $this->setUpstreamDomainNaive($json['pac']['domain']);
-            }
-            // dnstt
-            if (!empty($json['dnstt'])) {
-                $out[] = 'update dnstt certificates';
-                $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                $this->buildDnsttModule()->saveKeyPair($json['dnstt']);
-            }
-            // nginx
-            $out[] = 'reset nginx';
-            $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-
-            $this->cloakNginx();
-
-            $out[] = "end import";
-            $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-            $this->language = $this->getPacConf()['language'] ?: 'en';
-            $this->limit    = $this->getPacConf()['limitpage'] ?: 5;
-            if (empty($file)) {
-                sleep(3);
-                $this->menu();
-            }
-        }
+        $this->buildImportFlow()->importFile($file === false ? false : (string) $file);
     }
 
     public function dw($u, $t)
@@ -8497,6 +8342,13 @@ DNS-over-HTTPS with IP:
             $this,
             __DIR__ . '/subscription.php',
         );
+    }
+
+    public function buildImportFlow(): \VpnBot\Application\Import\ImportFlow
+    {
+        static $flow;
+
+        return $flow ??= new \VpnBot\Application\Import\ImportFlow($this);
     }
 
     public function buildFeatureRuntimeFactory(): \VpnBot\Bootstrap\FeatureRuntimeFactory
