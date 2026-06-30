@@ -31,6 +31,7 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Infrastructure/Process/ProcOpenCommandRunner.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteDocumentSettingsRepository.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardClientStore.php';
+    require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardBotFlow.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/SqliteWireGuardClientStore.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardConfigCodec.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardModule.php';
@@ -3168,281 +3169,57 @@ DNS-over-HTTPS with IP:
 
     public function getTitleWG()
     {
-        $c = $this->getPacConf();
-        return $this->i18n($c[$this->getInstanceWG(1) . 'amnezia'] ? 'amnezia' : 'wg_title') . ' ' . $c['wg_instance'];
+        return $this->buildWireGuardBotFlow()->title();
     }
 
     public function statusWg(int $page = 0)
     {
-        $c       = $this->getPacConf();
-        $conf    = $this->readConfig();
-        $status  = $this->readStatus();
-        if (empty($status)) {
-            return [
-                'text' => "Menu -> " . $this->getTitleWG() . "\n\nerror status",
-                'data' => [[
-                    [
-                        'text'          => $this->i18n('back'),
-                        'callback_data' => "/menu",
-                    ],
-                ]],
-            ];
-        }
-        $clients = $this->getClients($page);
-        $bt      = $c[$this->getInstanceWG(1) . 'blocktorrent'] ?? false;
-        $ex      = $c[$this->getInstanceWG(1) . 'exchange'] ?? false;
-        $dns     = $c[$this->getInstanceWG(1) . 'dns'] ?? false;
-        $mtu     = $c[$this->getInstanceWG(1) . 'mtu'] ?? $this->mtu;
-        $am      = $c[$this->getInstanceWG(1) . 'amnezia'] ?? false;
-        $end     = $c[$this->getInstanceWG(1) . 'endpoint'] ?? false;
-
-        if (!empty($am)) {
-            $ak     = $this->amneziaKeys();
-            $text[] = '<code>' . implode("\n", array_map(fn($k, $v) => htmlspecialchars($k) . ': ' . htmlspecialchars($v), array_keys($ak), $ak)) . "</code>\n";
-        }
-        $data   = [
-            [
-                [
-                    'text'          => $this->i18n(!$bt ? 'on' : 'off') . " {$this->i18n('torrent')} ",
-                    'callback_data' => "/switchTorrent $page",
-                ],
-                [
-                    'text'          => $this->i18n(!$ex ? 'on' : 'off') . " {$this->i18n('exchange')} ",
-                    'callback_data' => "/switchExchange $page",
-                ],
-                [
-                    'text'          =>  $this->i18n('listSubnet'),
-                    'callback_data' => "/subnet $page",
-                ],
-            ],
-            [
-                [
-                    'text'          =>  $this->i18n('defaultDNS') . ': ' . ($dns ?: $this->dns),
-                    'callback_data' => "/defaultDNS $page",
-                ],
-                [
-                    'text'          =>  $this->i18n('defaultMTU') . ': ' . $mtu,
-                    'callback_data' => "/defaultMTU $page",
-                ],
-            ],
-            [
-                [
-                    'text'          => $this->i18n('endpoint') . ': ' . ($end ? $this->ip : $this->getDomain()),
-                    'callback_data' => "/switchEndpoint $page",
-                ],
-            ],
-            [
-                [
-                    'text'          =>  $this->i18n('add peer'),
-                    'callback_data' => "/menu addpeer $page",
-                ],
-            ],
-        ];
-        if (!empty($am)) {
-            array_unshift($data, [
-                [
-                    'text'          => "reset obf-keys",
-                    'callback_data' => "/resetAmnezia $page",
-                ],
-                [
-                    'text'          => "reduce to 1",
-                    'callback_data' => "/reduceAmnezia $page",
-                ],
-            ]);
-        }
-        array_unshift($data, [
-            [
-                'text'          => $this->i18n($am ? 'on' : 'off') . " amnezia",
-                'callback_data' => "/switchAmnezia $page",
-            ],
-        ]);
-        if ($clients) {
-            $data = array_merge($data, $clients);
-        }
-        if (!empty($conf['peers'])) {
-            $all     = (int) ceil(count($conf['peers']) / $this->limit);
-            $page    = min($page, $all - 1);
-            $page    = $page == -2 ? $all - 1 : $page;
-            $conf['peers'] = array_slice($conf['peers'], $page * $this->limit, $this->limit, true);
-            foreach ($conf['peers'] as $k => $v) {
-                if (!empty($v['# PublicKey'])) {
-                    $conf['peers'][$k]['online'] = 'off';
-                } else {
-                    $conf['peers'][$k]['status'] = $status ? $this->getStatusPeer($v['PublicKey'], $status['peers']) : 'error';
-                    $conf['peers'][$k]['online'] = preg_match('~^(\d+ seconds|[12] minute)~', $conf['peers'][$k]['status']['latest handshake']) ? 'online' : '';
-                }
-            }
-            foreach ($conf['peers'] as $k => $v) {
-                if (empty($v['# PublicKey'])) {
-                    preg_match_all('~([0-9.]+\.?)\s(\w+)~', $v['status']['transfer'], $m);
-                    $tr = $m[0] ? ceil($m[1][1]) . '↓' . substr($m[2][1], 0, 1) . '/' . ceil($m[1][0]) . '↑' . substr($m[2][0], 0, 1) : '';
-                } else {
-                    $tr = '';
-                }
-                $t = [
-                    'name'    => $this->getName($v),
-                    'time'    => $this->getTime(strtotime($v['## time'])),
-                    'status'  => $v['online'] == 'off' ? '🚷' : $this->i18n($v['online'] ? 'on' : 'off'),
-                    'traffic' => $tr,
-                ];
-                $pad = [
-                    'name'    => max(mb_strlen($t['name']), $pad['name'] ?? 0),
-                    'time'    => max($t['time'] == '♾' ? 4 : mb_strlen($t['time']), $pad['time'] ?? 0),
-                    'status'  => max(mb_strlen($t['status']), $pad['status'] ?? 0),
-                    'traffic' => max(mb_strlen($t['traffic']), $pad['traffic'] ?? 0),
-                ];
-                $peers[] = $t;
-            }
-            foreach ($peers as $k => $v) {
-                $text[] = implode('', [
-                    $this->pad($v['name'], $pad['name'] - mb_strlen($v['name'])),
-                    $this->pad(" {$v['time']}", $pad['time'] - mb_strlen($v['time'])),
-                    $this->pad($v['status'], $pad['status'] - mb_strlen($v['status'])),
-                    $this->pad(" {$v['traffic']}", $pad['traffic'] - mb_strlen($v['traffic'])),
-                ]);
-            }
-        }
-        $text = "Menu -> " . $this->getTitleWG() . "\n\n<code>" . implode(PHP_EOL, $text ?: []) . '</code>';
-        $data[] = [
-            [
-                'text'          =>  $this->i18n('update status'),
-                'callback_data' => "/menu wg $page",
-            ],
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => "/menu",
-            ]
-        ];
-        return [
-            'text' => $text,
-            'data' => $data,
-        ];
+        return $this->buildWireGuardBotFlow()->statusMenu($page);
     }
 
     public function defaultDNS($page = 0)
     {
-        $r = $this->send(
-            $this->input['chat'],
-            "@{$this->input['username']} enter dns separated by commas",
-            $this->input['message_id'],
-            reply: 'enter dns separated by commas',
-        );
-        $_SESSION['reply'][$r['result']['message_id']] = [
-            'start_message'  => $this->input['message_id'],
-            'start_callback' => $this->input['callback_id'],
-            'callback'       => 'setDNS',
-            'args'           => [$page],
-        ];
+        $this->buildWireGuardBotFlow()->promptDefaultDns((int) $page);
     }
 
     public function defaultMTU($page = 0)
     {
-        $r = $this->send(
-            $this->input['chat'],
-            "@{$this->input['username']} enter MTU",
-            $this->input['message_id'],
-            reply: 'enter MTU',
-        );
-        $_SESSION['reply'][$r['result']['message_id']] = [
-            'start_message'  => $this->input['message_id'],
-            'start_callback' => $this->input['callback_id'],
-            'callback'       => 'setMTU',
-            'args'           => [$page],
-        ];
+        $this->buildWireGuardBotFlow()->promptDefaultMtu((int) $page);
     }
 
     public function changeMTU($client, $page = 0)
     {
-        $r = $this->send(
-            $this->input['chat'],
-            "@{$this->input['username']} enter MTU",
-            $this->input['message_id'],
-            reply: 'enter MTU',
-        );
-        $_SESSION['reply'][$r['result']['message_id']] = [
-            'start_message'  => $this->input['message_id'],
-            'start_callback' => $this->input['callback_id'],
-            'callback'       => 'changeClientMTU',
-            'args'           => [$client, $page],
-        ];
+        $this->buildWireGuardBotFlow()->promptClientMtu((int) $client, (int) $page);
     }
 
     public function setDNS($text, $page = 0)
     {
-        $c = $this->getPacConf();
-        if ($text) {
-            $c[$this->getInstanceWG(1) . 'dns'] = $text;
-        } else {
-            unset($c[$this->getInstanceWG(1) . 'dns']);
-        }
-        $this->setPacConf($c);
-        $this->menu('wg', $page);
+        $this->buildWireGuardBotFlow()->saveDefaultDns((string) $text, (int) $page);
     }
 
     public function setMTU($text, $page = 0)
     {
-        $c = $this->getPacConf();
-        if ($text) {
-            $c[$this->getInstanceWG(1) . 'mtu'] = $text;
-        } else {
-            unset($c[$this->getInstanceWG(1) . 'mtu']);
-        }
-        $this->setPacConf($c);
-        $this->menu('wg', $page);
+        $this->buildWireGuardBotFlow()->saveDefaultMtu((string) $text, (int) $page);
     }
 
     public function changeClientMTU($text, $client, $page = 0)
     {
-        $clients = $this->readClients();
-        if (!empty((int) $text)) {
-            $clients[$client]['interface']['MTU'] = $text;
-        } else {
-            unset($clients[$client]['interface']['MTU']);
-        }
-        $this->saveClients($clients);
-        $this->menu('client', "{$client}_$page");
+        $this->buildWireGuardBotFlow()->saveClientMtu((string) $text, (int) $client, (int) $page);
     }
 
     public function subnetAdd($wgpage, $page, $openconnect)
     {
-        $r = $this->send(
-            $this->input['chat'],
-            "@{$this->input['username']} enter subnet separated by commas",
-            $this->input['message_id'],
-            reply: 'enter subnet separated by commas',
-        );
-        $_SESSION['reply'][$r['result']['message_id']] = [
-            'start_message'  => $this->input['message_id'],
-            'start_callback' => $this->input['callback_id'],
-            'callback'       => 'subnetSave',
-            'args'           => [$wgpage, $page, $openconnect],
-        ];
+        $this->buildWireGuardBotFlow()->promptSubnetAdd((int) $wgpage, (int) $page, (int) $openconnect);
     }
 
     public function subnetSave($text, $wgpage, $page, $openconnect)
     {
-        $c = $this->getPacConf();
-        $subnets = explode(',', $text);
-        if ($subnets) {
-            $c['subnets'] = array_merge($c['subnets'] ?: [], array_filter(array_map(fn ($e) => trim($e), $subnets)));
-            $this->setPacConf($c);
-            $page = floor(count($c['subnets']) / $this->limit);
-        }
-        if (!empty($openconnect)) {
-            $this->ocservRoute();
-        }
-        $this->subnet($wgpage, $page, $openconnect);
+        $this->buildWireGuardBotFlow()->saveSubnet((string) $text, (int) $wgpage, (int) $page, (int) $openconnect);
     }
 
     public function subnetDelete($wgpage, $k, $page = 0, $openconnect = 0)
     {
-        $c = $this->getPacConf();
-        unset($c['subnets'][$k]);
-        $this->setPacConf($c);
-        if (!empty($openconnect)) {
-            $this->ocservRoute();
-        }
-        $this->subnet($wgpage, $page, $openconnect);
+        $this->buildWireGuardBotFlow()->deleteSubnet((int) $wgpage, (int) $k, (int) $page, (int) $openconnect);
     }
 
     public function ocservRoute()
@@ -3519,144 +3296,22 @@ DNS-over-HTTPS with IP:
 
     public function subnet($wgpage = 0, $page = 0, $openconnect = 0)
     {
-        $count  = $this->limit;
-        $text   = 'Menu -> ' . ($openconnect ? 'Openconnect' : 'Wireguard') . ' -> ' . $this->i18n('listSubnet') . "\n";
-        $data[] = [
-            [
-                'text'          => $this->i18n('calc'),
-                'callback_data' => "/calc",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('add'),
-                'callback_data' => "/subnetAdd {$wgpage}_{$page}_$openconnect",
-            ],
-        ];
-        $subnets = $this->getPacConf()['subnets'];
-        if (!empty($subnets)) {
-            $all     = (int) ceil(count($subnets) / $count);
-            $page    = min($page, $all - 1);
-            $page    = $page == -2 ? $all - 1 : $page;
-            $subnets = $page != -1 ? array_slice($subnets, $page * $count, $count, true) : $subnets;
-            foreach ($subnets as $k => $v) {
-                $data[] = [
-                    [
-                        'text'          => $this->i18n('delete') . " $v",
-                        'callback_data' => "/subnetDelete {$wgpage}_{$k}_{$page}_$openconnect",
-                    ],
-                ];
-            }
-            if ($page != -1 && $all > 1) {
-                $data[] = [
-                    [
-                        'text'          => '<<',
-                        'callback_data' => "/subnet {$wgpage}_" . ($page - 1 >= 0 ? $page - 1 : $all - 1) . ($openconnect ? '_1' : ''),
-                    ],
-                    [
-                        'text'          => $page + 1,
-                        'callback_data' => "/subnet {$wgpage}_$page" . ($openconnect ? '_1' : ''),
-                    ],
-                    [
-                        'text'          => '>>',
-                        'callback_data' => "/subnet {$wgpage}_" . ($page < $all - 1 ? $page + 1 : 0) . ($openconnect ? '_1' : ''),
-                    ],
-                ];
-            }
-        }
-        $data[] = [
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => $openconnect ? '/menu oc' : "/menu wg $wgpage",
-            ],
-        ];
-        $this->update(
-            $this->input['chat'],
-            $this->input['message_id'],
-            $text,
-            $data ?: false,
-        );
+        $this->buildWireGuardBotFlow()->showSubnet((int) $wgpage, (int) $page, (int) $openconnect);
     }
 
     public function changeAllowedIps($k, $page = 0)
     {
-        $clients = $this->readClients();
-        $name    = $this->getName($clients[$k]['interface']);
-        $text    = "Menu -> Wireguard -> $name -> Change AllowedIPs\n\n";
-        $data[]  = [
-            [
-                'text'          =>  $this->i18n('all traffic'),
-                'callback_data' => "/changeIps all_{$k}_$page",
-            ]
-        ];
-        $data[] = [
-            [
-                'text'          =>  $this->i18n('subnet'),
-                'callback_data' => "/changeIps subnet_{$k}_$page",
-            ]
-        ];
-        if ($this->getPacConf()['subnets']) {
-            $data[] = [
-                [
-                    'text'          =>  $this->i18n('listSubnet'),
-                    'callback_data' => "/changeIps list_{$k}_$page",
-                ]
-            ];
-        }
-        $data[] = [
-            [
-                'text'          =>  $this->i18n('proxy ip'),
-                'callback_data' => "/changeIps proxy_{$k}_$page",
-            ]
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => "/menu client {$k}_$page",
-            ]
-        ];
-        $this->update(
-            $this->input['chat'],
-            $this->input['message_id'],
-            $text,
-            $data ?: false,
-        );
+        $this->buildWireGuardBotFlow()->showAllowedIpsChooser((int) $k, (int) $page);
     }
 
     public function changeIps($type, $k, $page = 0)
     {
-        switch ($type) {
-            case 'all':
-                $this->setIps('0.0.0.0/0', $k, $page);
-                break;
-            case 'subnet':
-                $r = $this->send(
-                    $this->input['chat'],
-                    "@{$this->input['username']} list subnets separated by commas",
-                    $this->input['message_id'],
-                    reply: 'list subnets separated by commas',
-                );
-                $_SESSION['reply'][$r['result']['message_id']] = [
-                    'start_message' => $this->input['message_id'],
-                    'callback'      => 'setIps',
-                    'args'          => [$k, $page],
-                ];
-                break;
-            case 'list':
-                $this->setIps(implode(',', $this->getPacConf()['subnets']), $k, $page);
-                break;
-            case 'proxy':
-                $this->setIps(trim($this->ssh("getent hosts proxy | awk '{ print $1 }'")) . '/32', $k, $page);
-                break;
-        }
+        $this->buildWireGuardBotFlow()->changeIps((string) $type, (int) $k, (int) $page);
     }
 
     public function setIps($ips, $k, $page = 0)
     {
-        $clients = $this->readClients();
-        $clients[$k]['peers'][0]['AllowedIPs'] = $ips;
-        $this->saveClients($clients);
-        $this->menu('client', "{$k}_$page");
+        $this->buildWireGuardBotFlow()->saveIps((string) $ips, (int) $k, (int) $page);
     }
 
     public function getAmneziaShortLink($client)
@@ -3753,213 +3408,27 @@ DNS-over-HTTPS with IP:
 
     public function getClient($client, $page)
     {
-        $clients = $this->readClients();
-        if ($clients) {
-            $name = $this->getName($clients[$client]['interface']);
-            $conf = htmlspecialchars($this->createConfig($clients[$client]));
-            if ($this->getWGType() == 'awg') {
-                $sl = $this->getAmneziaShortLink($clients[$client]);
-            }
-            return [
-                'text' => "<pre>$conf</pre>\n\n<code>$sl</code>\n\n<b>$name</b> ({$this->getTitleWG()})",
-                'data' => [
-                    [
-                        [
-                            'text'          =>  $this->i18n('rename'),
-                            'callback_data' => "/rename {$client}_$page",
-                        ],
-                        [
-                            'text'          =>  $this->i18n('timer'),
-                            'callback_data' => "/timer {$client}_$page",
-                        ],
-                    ],
-                    [
-                        [
-                            'text'          => $this->i18n('show QR'),
-                            'callback_data' => "/qr $client",
-                        ],
-                        [
-                            'text'          => $this->i18n('download config'),
-                            'callback_data' => "/download $client",
-                        ],
-                    ],
-                    [
-                        [
-                            'text'          => $this->i18n($clients[$client]['# off'] ? 'off' : 'on'),
-                            'callback_data' => "/switchClient {$client}_$page",
-                        ],
-                        [
-                            'text'          => $this->i18n($clients[$client]['interface']['DNS'] ? 'delete internal dns' : 'set internal dns'),
-                            'callback_data' => "/" . ($clients[$client]['interface']['DNS'] ? 'delete' : '') . "dns {$client}_$page",
-                        ],
-                    ],
-                    [
-                        [
-                            'text'          => $this->i18n('AllowedIPs'),
-                            'callback_data' => "/changeAllowedIps {$client}_$page",
-                        ],
-                    ],
-                    [
-                        [
-                            'text'          => $this->i18n('MTU') . " " . ($clients[$client]['interface']['MTU'] ?: $this->getPacConf()[$this->getInstanceWG(1) . 'mtu'] ?: $this->mtu),
-                            'callback_data' => "/changeMTU {$client}_$page",
-                        ],
-                    ],
-                    [
-                        [
-                            'text'          => $this->i18n('delete'),
-                            'callback_data' => "/delete {$client}_$page",
-                        ],
-                        [
-                            'text'          => $this->i18n('back'),
-                            'callback_data' => "/menu wg $page",
-                        ],
-                    ],
-                ],
-            ];
-        }
-        return [
-            'text' => "no clients",
-            'data' => false
-        ];
+        return $this->buildWireGuardBotFlow()->clientMenu((int) $client, (int) $page);
     }
 
     public function setVlessLink($cl, $wg, $page_wg = 0)
     {
-        $c = $this->getXray();
-        $w = $this->readClients();
-        $privatekey = $w[$wg]['interface']['PrivateKey'];
-        foreach ($c['inbounds'][0]['settings']['clients'] as $i => $j) {
-            if ($i == $cl) {
-                $c['inbounds'][0]['settings']['clients'][$i]['awg'] = $privatekey;
-            } elseif (!empty($j['awg']) && $j['awg'] == $privatekey) {
-                unset($c['inbounds'][0]['settings']['clients'][$i]['awg']);
-            }
-        }
-        $this->restartXray($c, 1);
-        $this->menu('wg', $page_wg);
+        $this->buildWireGuardBotFlow()->linkVless((int) $cl, (int) $wg, (int) $page_wg);
     }
 
     public function unsetVlessLink($wg, $page_wg = 0)
     {
-        $c = $this->getXray();
-        $w = $this->readClients();
-        $privatekey = $w[$wg]['interface']['PrivateKey'];
-        foreach ($c['inbounds'][0]['settings']['clients'] as $i => $j) {
-            if (!empty($j['awg']) && $j['awg'] == $privatekey) {
-                unset($c['inbounds'][0]['settings']['clients'][$i]['awg']);
-            }
-        }
-        $this->restartXray($c, 1);
-        $this->menu('wg', $page_wg);
+        $this->buildWireGuardBotFlow()->unlinkVless((int) $wg, (int) $page_wg);
     }
 
     public function choiceVless($i, $page_wg = 0, $page_vl = 0)
     {
-        $c = $this->getXray();
-
-        $text[] = "Menu -> " . $this->i18n('link awg');
-
-        $data[] = [
-            [
-                'text'          => $this->i18n('delete'),
-                'callback_data' => "/unsetVlessLink {$i}_$page_wg",
-            ],
-        ];
-
-        $clients = array_filter($c['inbounds'][0]['settings']['clients'], fn($e) => empty($e['off']));
-        uasort($clients, fn($a, $b) => ($a['time'] ?: PHP_INT_MAX) <=> ($b['time'] ?: PHP_INT_MAX));
-
-        $all     = (int) ceil(count($clients) / $this->limit);
-        $page_vl = min($page_vl, $all - 1);
-        $page_vl = $page_vl == -2 ? $all - 1 : $page_vl;
-        $clients = $page_vl != -1 ? array_slice($clients, $page_vl * $this->limit, $this->limit, true) : $clients;
-        foreach ($clients as $k => $v) {
-            $data[]   = [
-                [
-                    'text'          => "{$v['email']}",
-                    'callback_data' => "/setVlessLink {$k}_{$i}_$page_wg",
-                ],
-            ];
-        }
-        if ($page_vl != -1 && $all > 1) {
-            $data[] = [
-                [
-                    'text'          => '<<',
-                    'callback_data' => "/choiceVless {$i}_{$page_wg}_" . ($page_vl - 1 >= 0 ? $page_vl - 1 : $all - 1),
-                ],
-                [
-                    'text'          => $page_vl + 1,
-                    'callback_data' => "/choiceVless {$i}_{$page_wg}_$page_vl",
-                ],
-                [
-                    'text'          => '>>',
-                    'callback_data' => "/choiceVless {$i}_{$page_wg}_" . ($page_vl < $all - 1 ? $page_vl + 1 : 0),
-                ],
-            ];
-        }
-
-        $data[] = [
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => "/menu wg $page_wg",
-            ],
-        ];
-        $this->update(
-            $this->input['chat'],
-            $this->input['message_id'],
-            implode("\n", $text ?? ['...']),
-            $data ?: false,
-        );
+        $this->buildWireGuardBotFlow()->chooseVless((int) $i, (int) $page_wg, (int) $page_vl);
     }
 
     public function getClients(int $page, int $count = 5)
     {
-        $count   = $this->limit;
-        $clients = $this->readClients();
-        if (!empty($clients)) {
-            $all     = (int) ceil(count($clients) / $count);
-            $page    = min($page, $all - 1);
-            $page    = $page == -2 ? $all - 1 : $page;
-            $clients = $page != -1 ? array_slice($clients, $page * $count, $count, true) : $clients;
-            $c = $this->getXray();
-            foreach ($clients as $k => $v) {
-                $vless = false;
-                foreach ($c['inbounds'][0]['settings']['clients'] as $vl) {
-                    if (!empty($vl['awg']) && $vl['awg'] == $v['interface']['PrivateKey']) {
-                        $vless = $vl['email'];
-                        break;
-                    }
-                }
-                $data[] = [
-                    [
-                        'text'          => $this->getName($v['interface']),
-                        'callback_data' => "/menu client {$k}_$page",
-                    ],
-                    [
-                        'text'          => $this->i18n('vless') . ': ' . $this->i18n($vless != false ? 'on' : 'off') . ($vless != false ? " $vless" : ''),
-                        'callback_data' => "/choiceVless {$k}_{$page}_0",
-                    ],
-                ];
-            }
-            if ($page != -1 && $all > 1) {
-                $data[] = [
-                    [
-                        'text'          => '<<',
-                        'callback_data' => "/menu wg " . ($page - 1 >= 0 ? $page - 1 : $all - 1),
-                    ],
-                    [
-                        'text'          => $page + 1,
-                        'callback_data' => "/menu wg $page",
-                    ],
-                    [
-                        'text'          => '>>',
-                        'callback_data' => "/menu wg " . ($page < $all - 1 ? $page + 1 : 0),
-                    ]
-                ];
-            }
-        }
-        return $data;
+        return $this->buildWireGuardBotFlow()->listClients((int) $page);
     }
 
     public function sizeFormat($bytes)
@@ -8917,6 +8386,13 @@ DNS-over-HTTPS with IP:
             $runtime,
             $store,
         );
+    }
+
+    public function buildWireGuardBotFlow(): \VpnBot\Module\WireGuard\WireGuardBotFlow
+    {
+        static $flow;
+
+        return $flow ??= new \VpnBot\Module\WireGuard\WireGuardBotFlow($this);
     }
 
     public function buildXrayModule(): \VpnBot\Module\Xray\XrayModule

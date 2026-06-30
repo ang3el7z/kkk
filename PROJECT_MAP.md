@@ -15,7 +15,7 @@
 - `app/cron.php`: launches `VpnBot\Application\Cron\CronRunner`.
 - `app/updatepac.php`: PAC list update worker.
 - `app/backup.php`: export entrypoint.
-- `app/bot.php`: still the main orchestration surface, but after Task 38 it is best understood as a legacy fallback controller containing the remaining WireGuard/import/HWID-heavy flows, menu rendering, HTTP/subscription formatting, Telegram transport helpers, runtime/config helpers, and a temporary composition root for extracted modules. See `BOT_MONOLITH_AUDIT.md`.
+- `app/bot.php`: still the main orchestration surface, but after Task 39 it is best understood as a legacy fallback controller containing the remaining import/HWID-heavy flows, menu rendering, HTTP/subscription formatting, Telegram transport helpers, runtime/config helpers, and a temporary composition root for extracted modules. See `BOT_MONOLITH_AUDIT.md`.
 
 ## Extracted Runtime Modules
 
@@ -26,7 +26,8 @@
 - PAC HTTP glue extracted so far: `src/Application/Pac/PacHttpController.php` now owns `/pac*` entry routing glue, web template rendering, zapret list delivery, and subscription landing-page orchestration; `Bot::subscription()` still contains the heavy config rendering logic
 - Feature/container factory wiring extracted so far: `src/Bootstrap/FeatureRuntimeFactory.php` now owns `FeatureRegistry`, DB bootstrapper, feature repository/manager, audit writer, container runtime, and container-manager service wiring; `Bot` keeps thin delegating `build*` facades
 - Xray UI/action flow extracted so far: `src/Module/Xray/XrayBotFlow.php` now owns `xray()`, `userXr()`, template choice/user screens, and user add/toggle/rename/delete orchestration; `Bot` keeps thin delegates
-- Post-Task-38 audit: biggest remaining `Bot` hotspots are `action()`, `subscription()`, `menu()`, `importFile()`, `statusWg()`, `hwidUser()`, and `ports()`; next extraction order is WireGuard -> import -> Telegram transport -> runtime helpers
+- WireGuard UI/action flow extracted so far: `src/Module/WireGuard/WireGuardBotFlow.php` now owns `statusWg()`, `getClient()`, `getClients()`, vless-link orchestration, default DNS/MTU prompts, subnet screens, and AllowedIPs screens; `Bot` keeps thin delegates
+- Post-Task-39 audit: biggest remaining `Bot` hotspots are `action()`, `subscription()`, `menu()`, `importFile()`, `hwidUser()`, and `ports()`; next extraction order is import -> Telegram transport -> runtime helpers
 - PAC/templates/subscriptions: `src/Module/Pac/*`
 - Xray: `src/Module/Xray/*`
 - AdGuard: `src/Module/AdGuard/*`

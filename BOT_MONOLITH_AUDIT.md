@@ -4,21 +4,21 @@
 
 - Audit date: 2026-07-01
 - File: `app/bot.php`
-- Current size: 10,185 lines, 385,288 bytes
-- Shape: legacy god-object with partial migration to `src/*`; after Task 38 the biggest Xray UI/action slice moved into `src/Module/Xray/XrayBotFlow.php`, while `Bot` remains a fallback router/controller, menu presenter, transport client, runtime helper host, and temporary composition root.
+- Current size: 9,661 lines, 363,735 bytes
+- Shape: legacy god-object with partial migration to `src/*`; after Task 39 both Xray and the main WireGuard menu/status/action slice now live in dedicated flow services, while `Bot` remains a fallback router/controller, menu presenter, transport client, runtime helper host, and temporary composition root.
 
 ## Largest Methods
 
 | Method | Lines | Notes |
 | --- | ---: | --- |
 | `action()` | 242-818 | Legacy regex dispatch table still exists after `guardFeatureAccess()` and `dispatchRouter()` short-circuit. |
-| `subscription()` | 7165-7601 | Still owns config rendering, headers, redirect/return flow, and HWID/subscription delivery details. |
-| `menu()` | 4848-5085 | Main dashboard/menu builder still reads runtime/git/backup state directly. |
-| `importFile()` | 1749-1898 | Import dispatch still mixes parsing, protocol detection, and user messaging. |
-| `statusWg()` | 3175-3321 | WireGuard status/menu rendering remains local. |
-| `hwidUser()` | 6969-7088 | HWID user screen remains tied to Xray user state after the main Xray flow extraction. |
-| `ports()` | 9099-9156 | Legacy ports UI still parses compose/runtime state inline despite extracted settings handlers. |
-| `changeTransport()` | 9492-9590 | Transport switcher still mutates protocol state inline and returns to Xray menu. |
+| `subscription()` | 6634-7070 | Still owns config rendering, headers, redirect/return flow, and HWID/subscription delivery details. |
+| `menu()` | 4317-4554 | Main dashboard/menu builder still reads runtime/git/backup state directly. |
+| `importFile()` | 1750-1899 | Import dispatch still mixes parsing, protocol detection, and user messaging. |
+| `hwidUser()` | 6438-6557 | HWID user screen remains tied to Xray user state after the main Xray flow extraction. |
+| `ports()` | 8575-8632 | Legacy ports UI still parses compose/runtime state inline despite extracted settings handlers. |
+| `changeTransport()` | 8968-9066 | Transport switcher still mutates protocol state inline and returns to Xray menu. |
+| `xrayUpdateRules()` | 2892-3017 | Xray route/rules mutation helper is still a large inline protocol-specific mutator. |
 
 ## Section Map
 
@@ -36,33 +36,33 @@
 
 ### 2. Menu builders
 
-- Main entry: `menu()` 4848-5085
+- Main entry: `menu()` 4317-4554
 - Other large menu/render zones:
-  - `statusWg()` 3175-3321
-  - `pacMenu()` 4003-4106
-  - `hwidUser()` 6969-7088
-  - `adguardMenu()` 8447-8496
-  - `configMenu()` 8631-8696
-  - `ocMenu()` 6189-6222
-  - `naiveMenu()` 6105-6121
-  - `hysteriaMenu()` 6122-6138
+  - `pacMenu()` 3472-3575
+  - `hwidUser()` 6438-6557
+  - `adguardMenu()` 7923-7972
+  - `configMenu()` 8107-8172
+  - `ocMenu()` 5665-5698
+  - `naiveMenu()` 5581-5597
+  - `hysteriaMenu()` 5598-5614
 - Status: mixed
 - Already extracted:
   - container menu -> `src/Telegram/Menu/ContainerManagerMenuBuilder.php`
   - config menu -> `src/Telegram/Menu/ConfigMenuBuilder.php`
   - AdGuard/OpenConnect/NaiveProxy/Hysteria protocol menu builders -> `src/Telegram/Menu/*MenuBuilder.php`
   - Xray dashboard/user/template/action flow -> `src/Module/Xray/XrayBotFlow.php`
+  - WireGuard status/client/vless-link/default-DNS/default-MTU/subnet/AllowedIPs flow -> `src/Module/WireGuard/WireGuardBotFlow.php`
   - feature button filtering -> `src/Telegram/Menu/MenuFilter.php`
 - Still local:
   - main dashboard
-  - WireGuard/PAC menu flows
+  - PAC menu flows
   - Xray-adjacent HWID screens and transport toggles
   - text formatting and inline keyboard assembly
 
 ### 3. HTTP/subscription glue
 
-- `sub()` 7160-7164
-- `subscription()` 7165-7601
+- `sub()` 6629-6633
+- `subscription()` 6634-7070
 - related helpers: `choiceTemplate()`, `templateUser()`, `linkXray()`, `createRuleSet()`, `createSrs()`
 - Status: partially extracted
 - Already extracted:
@@ -87,12 +87,12 @@
   - `expireCert()`, `domainsCert()`
   - `containerManagerMenu()`, `featureToggle()`, `featureToggleConfirm()`
 - Not thin enough yet:
-  - `statusWg()` and related WG menu/status helpers
   - `hwidUser()` and related HWID user screens
   - `adgFillAllowedClients()`
   - `changeOcExpose()`, `deloc()`
   - `importFile()`
   - `changeTransport()`
+  - `xrayUpdateRules()` and remaining route/tun mutators
 
 ### 5. Runtime / SSH / config helpers
 
@@ -151,9 +151,9 @@
 - Kept: feature/container `build*` wrapper methods
   - Reason: after Task 32 they are thin facades, but still active call sites inside `Bot`.
 
-## Post-Task-38 State
+## Post-Task-39 State
 
-- Tasks 29-38 are reflected in the current file shape:
+- Tasks 29-39 are reflected in the current file shape:
   - menu builders extracted for config/AdGuard/OpenConnect/NaiveProxy/Hysteria/container manager
   - router/action handlers extracted for menu/start/container/settings slice
   - PAC HTTP controller extracted
@@ -161,11 +161,12 @@
   - duplicate menu-route wrappers removed
   - local PHP CLI SQLite warning documented outside repo code changes
   - Xray dashboard/user/template/action flow extracted into `src/Module/Xray/XrayBotFlow.php`
-- Result: biggest remaining business hotspots are now WireGuard, import flow, Telegram transport, subscription rendering, and low-level runtime helpers.
+  - WireGuard status/client/vless-link/default-DNS/default-MTU/subnet/AllowedIPs flow extracted into `src/Module/WireGuard/WireGuardBotFlow.php`
+- Result: biggest remaining business hotspots are now import flow, Telegram transport, subscription rendering, HWID screens, and low-level runtime helpers.
 
 ## Why `app/bot.php` Is Still Big
 
-1. Business logic moved only partially. Modules now own storage/config primitives, but user-flow orchestration for WireGuard/import plus some Xray-adjacent HWID/transport screens still lives in `Bot`.
+1. Business logic moved only partially. Modules now own storage/config primitives, but import flow plus some Xray-adjacent HWID/transport screens still live in `Bot`.
 2. Extraction kept backward-compatible wrappers. Good for safety, bad for file size.
 3. Telegram transport and SSH/runtime helpers still live beside controller logic.
 4. Composition root is thinner than before, but anonymous runtime adapters still keep many lines in `Bot`.
@@ -173,11 +174,10 @@
 
 ## Proposed Follow-Up Order
 
-1. Task 39: extract WireGuard status/menu/action flow. It is now the largest protocol-specific UI hotspot.
-2. Task 40: extract import flow. This removes mixed parsing + Telegram response logic from the monolith.
-3. Task 41: extract Telegram transport into a dedicated client. This separates controller logic from HTTP API plumbing.
-4. Task 42: extract runtime helpers and anonymous adapters. Do this after higher-level flow extraction so runtime refactor stays narrow.
-5. After 39-42, run a new dead-code cleanup pass before broader audits.
+1. Task 40: extract import flow. This is now the most obvious mixed parsing + Telegram response hotspot.
+2. Task 41: extract Telegram transport into a dedicated client. This separates controller logic from HTTP API plumbing.
+3. Task 42: extract runtime helpers and anonymous adapters. Do this after higher-level flow extraction so runtime refactor stays narrow.
+4. After 40-42, run a new dead-code cleanup pass before broader audits.
 
 ## Extraction Guidance
 
@@ -190,7 +190,7 @@
 
 - `app/bot.php` is no longer just "main orchestration surface"; it is currently:
   - legacy fallback controller/router
-  - UI/menu presenter layer for the remaining WireGuard/PAC/HWID-heavy flows
+  - UI/menu presenter layer for the remaining PAC/HWID-heavy flows
   - HTTP/subscription formatter/delivery layer
   - temporary composition root for extracted modules
   - home of remaining Telegram transport and runtime/config helper code

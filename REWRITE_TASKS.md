@@ -1654,7 +1654,14 @@ Commit:
 
 ## Task 39 - WireGuard Flow Extraction
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Module/WireGuard/WireGuardBotFlow.php` to own WireGuard status/client/vless-link/default-DNS/default-MTU/subnet/AllowedIPs orchestration
+- converted `Bot::statusWg()`, `getClient()`, `getClients()`, `choiceVless()`, `setVlessLink()`, `unsetVlessLink()`, `defaultDNS()`, `defaultMTU()`, `changeMTU()`, `setDNS()`, `setMTU()`, `changeClientMTU()`, `subnet*()`, `changeAllowedIps()`, `changeIps()`, and `setIps()` into thin delegates
+- updated fallback `require_once` loading and added `buildWireGuardBotFlow()` in `app/bot.php`
+- refreshed `BOT_MONOLITH_AUDIT.md` and `PROJECT_MAP.md` to reflect the reduced `Bot` size and the next extraction order
 
 Цель: убрать WireGuard menu/status/action glue из `Bot`.
 
