@@ -1401,7 +1401,14 @@ Commit:
 
 ## Task 31 - Bot HTTP And Subscription Glue Extraction
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Application/Pac/PacHttpController.php` for `/pac*` request branching, template webapp rendering, zapret list responses, and subscription landing-page orchestration
+- `app/index.php` now delegates PAC HTTP handling to `PacHttpController` instead of keeping that glue inline
+- `Bot::sub()` now delegates to `PacHttpController`; `Bot::subscription()` remains as the config rendering backend for the next extraction slice
+- updated `PROJECT_MAP.md` with current PAC HTTP extraction coverage
 
 Цель: вынести HTTP/subscription/webhook-adjacent glue из `Bot`, чтобы entrypoints и subscription flows были отдельным application layer.
 

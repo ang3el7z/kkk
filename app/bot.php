@@ -12,6 +12,7 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Application/Cron/VersionCheckAction.php';
     require_once dirname(__DIR__) . '/src/Application/Cron/XrayStatsPollAction.php';
     require_once dirname(__DIR__) . '/src/Application/Cron/XrayStatsResetAction.php';
+    require_once dirname(__DIR__) . '/src/Application/Pac/PacHttpController.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/ContainerManagerService.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/DockerContainerRuntime.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/FeatureManager.php';
@@ -7619,52 +7620,7 @@ DNS-over-HTTPS with IP:
 
     public function sub()
     {
-        $xr     = $this->getXray();
-        $pac    = $this->getPacConf();
-        $st     = $this->getXrayStats();
-        $domain = $_GET['cdn'] ?: ($_SERVER['SERVER_NAME'] ?: $this->getDomain($pac['transport'] != 'Reality'));
-        $scheme = empty($this->nginxGetTypeCert()) ? 'http' : 'https';
-        $hash   = $this->getHashBot();
-        $match  = $this->buildSubscriptionModule()->findClientByUuid($xr, (string) $_GET['id']);
-        $k      = $match['index'];
-        $client = $match['client'];
-        $flag   = ! empty($client['off']);
-        $uid    = $client['id'];
-        $email  = $client['email'];
-        $expire = $client['time'];
-        if (!$flag && !$this->processHwidRequest($client)) {
-            exit;
-        }
-        $suburl   = "<a href='$scheme://{$domain}/pac$hash/sub?id={$uid}'>subscription</a>";
-        $download = $this->getBytes($st['users'][$k]['global']['download'] + $st['users'][$k]['session']['download']);
-        $upload   = $this->getBytes($st['users'][$k]['global']['upload'] + $st['users'][$k]['session']['upload']);
-        $singbox  = "$scheme://{$domain}/pac$hash/" . base64_encode(serialize([
-            'h' => $hash,
-            't' => 'si',
-            's' => $uid,
-        ]));
-        $xray = "$scheme://{$domain}/pac$hash/" . base64_encode(serialize([
-            'h' => $hash,
-            't' => 's',
-            's' => $uid,
-        ]));
-        $clash = "$scheme://{$domain}/pac$hash/" . base64_encode(serialize([
-            'h' => $hash,
-            't' => 'cl',
-            's' => $uid,
-        ]));
-        $vless   = $this->linkXray($k);
-        $windows = "$scheme://{$domain}/pac$hash?t=si&r=w&s=$uid";
-        $_GET['s'] = $uid;
-        foreach ([
-          'xray'    => 's',
-          'singbox' => 'si',
-          'clash'   => 'cl'
-        ] as $k     => $v) {
-            $_GET['t'] = $v;
-            $configs[$k] = $this->subscription(1);
-        }
-        require __DIR__ . '/subscription.php';
+        $this->buildPacHttpController()->handleSubscriptionLanding();
     }
 
     public function subscription($return = false)
@@ -9572,6 +9528,16 @@ DNS-over-HTTPS with IP:
         static $handler;
 
         return $handler ??= new \VpnBot\Telegram\SettingsActionHandler($this);
+    }
+
+    public function buildPacHttpController(): \VpnBot\Application\Pac\PacHttpController
+    {
+        static $controller;
+
+        return $controller ??= new \VpnBot\Application\Pac\PacHttpController(
+            $this,
+            __DIR__ . '/subscription.php',
+        );
     }
 
     public function routeMenu(?string $type = null, ?string $arg = null): bool
