@@ -1058,7 +1058,7 @@ Done:
 
 ## Task 23 - Container Status UX
 
-Status: pending
+Status: done
 
 Цель: manager должен показывать не только DB enabled/disabled, но и реальное состояние Docker containers.
 
@@ -1089,6 +1089,12 @@ Status: pending
 Commit:
 
 - `feat: show container runtime status`
+
+Done:
+
+- added read-only `status()` to the container runtime abstraction with Docker `compose ps` parsing and unknown fallback on status errors
+- container manager now shows DB state, runtime state, locked core rows, drift warnings, and a refresh button without triggering any runtime changes
+- verified status fallback/menu rendering with a temporary `tmp/tests` check plus `php -l` and `docker compose config`
 
 ## Task 24 - Legacy State Audit
 

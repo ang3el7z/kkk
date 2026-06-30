@@ -12,38 +12,62 @@ final class ContainerManagerMenuBuilder
     /**
      * @param callable(FeatureDefinition): string $labelResolver
      * @param array<string, bool> $featureStates
+     * @param array<string, string> $runtimeStates
      * @return array{text: string, data: array<int, array<int, array<string, string>>>}
      */
     public function build(
         FeatureRegistry $registry,
         array $featureStates,
+        array $runtimeStates,
         callable $labelResolver,
         string $backLabel = 'back',
+        string $refreshLabel = 'refresh',
     ): array {
         $text = ['Settings -> Container manager'];
         $data = [];
+        $warnings = [];
 
         foreach ($registry->all() as $definition) {
             $enabled = $featureStates[$definition->id()] ?? $definition->enabledByDefault();
+            $runtime = $runtimeStates[$definition->id()] ?? 'unknown';
             $status = $enabled ? '🟢' : '🔴';
             $label = $labelResolver($definition);
+            $dbState = $enabled ? 'enabled' : 'disabled';
+            $line = sprintf('%s %s | DB: %s | Runtime: %s', $status, $label, $dbState, $runtime);
 
             if ($definition->toggleable()) {
-                $text[] = sprintf('%s %s', $status, $label);
+                $text[] = $line;
                 $data[] = [[
-                    'text' => sprintf('%s %s', $status, $label),
+                    'text' => sprintf('%s %s [%s]', $status, $label, $runtime),
                     'callback_data' => '/featureToggle ' . $definition->id(),
                 ]];
+
+                if ($enabled && in_array($runtime, ['stopped', 'missing'], true)) {
+                    $warnings[] = sprintf('Warning: %s is enabled in DB but runtime is %s.', $label, $runtime);
+                }
 
                 continue;
             }
 
-            $text[] = sprintf('🔒 %s', $label);
+            $text[] = sprintf('🔒 %s | Runtime: %s', $label, $runtime);
             $data[] = [[
-                'text' => sprintf('🔒 %s', $label),
+                'text' => sprintf('🔒 %s [%s]', $label, $runtime),
                 'callback_data' => '/menu containers',
             ]];
         }
+
+        if ($warnings !== []) {
+            $text[] = '';
+
+            foreach ($warnings as $warning) {
+                $text[] = '⚠ ' . $warning;
+            }
+        }
+
+        $data[] = [[
+            'text' => $refreshLabel,
+            'callback_data' => '/menu containers',
+        ]];
 
         $data[] = [[
             'text' => $backLabel,

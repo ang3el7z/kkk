@@ -9010,8 +9010,10 @@ DNS-over-HTTPS with IP:
         return $this->buildContainerManagerMenuBuilder()->build(
             $this->buildFeatureRegistry(),
             $states,
+            $this->loadFeatureRuntimeStates(),
             fn (\VpnBot\Domain\Feature\FeatureDefinition $definition): string => $this->featureLabel($definition),
             $this->i18n('back'),
+            'Refresh',
         );
     }
 
@@ -9196,6 +9198,35 @@ DNS-over-HTTPS with IP:
         return $states;
     }
 
+    /**
+     * @return array<string, string>
+     */
+    public function loadFeatureRuntimeStates(): array
+    {
+        $registry = $this->buildFeatureRegistry();
+        $states = [];
+        $services = [];
+
+        foreach ($registry->all() as $definition) {
+            $states[$definition->id()] = 'unknown';
+
+            foreach ($definition->services() as $service) {
+                $services[$service] = $service;
+            }
+        }
+
+        try {
+            $serviceStates = $this->buildContainerRuntime()->status(array_values($services));
+
+            foreach ($registry->all() as $definition) {
+                $states[$definition->id()] = $this->aggregateFeatureRuntimeState($definition, $serviceStates);
+            }
+        } catch (Throwable) {
+        }
+
+        return $states;
+    }
+
     public function featureLabel(\VpnBot\Domain\Feature\FeatureDefinition $definition): string
     {
         return match ($definition->id()) {
@@ -9211,6 +9242,32 @@ DNS-over-HTTPS with IP:
             'dnstt' => $this->i18n('DNSTT'),
             default => $definition->id(),
         };
+    }
+
+    /**
+     * @param array<string, string> $serviceStates
+     */
+    public function aggregateFeatureRuntimeState(\VpnBot\Domain\Feature\FeatureDefinition $definition, array $serviceStates): string
+    {
+        $featureStates = [];
+
+        foreach ($definition->services() as $service) {
+            $featureStates[] = $serviceStates[$service] ?? 'unknown';
+        }
+
+        if (in_array('running', $featureStates, true)) {
+            return 'running';
+        }
+
+        if (in_array('stopped', $featureStates, true)) {
+            return 'stopped';
+        }
+
+        if ($featureStates !== [] && count(array_unique($featureStates)) === 1 && $featureStates[0] === 'missing') {
+            return 'missing';
+        }
+
+        return 'unknown';
     }
 
     /**
