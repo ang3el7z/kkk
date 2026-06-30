@@ -68,6 +68,16 @@
 - Compose render: `docker compose config`
 - Real readiness gate: VPS/device smoke checklist
 
+## Local Tooling Notes
+
+- Current local PHP CLI warning `Module "pdo_sqlite" is already loaded` / `Module "sqlite3" is already loaded` is outside this repo.
+- Evidence:
+  - loaded CLI ini: `C:\Users\Ang3el\scoop\persist\php\cli\php.ini`
+  - additional parsed ini: `C:\Users\Ang3el\scoop\apps\php\current\cli\php.ini`
+  - both files currently contain `extension=pdo_sqlite` and `extension=sqlite3`
+- Repo checks may print that warning locally until the user deduplicates their Scoop PHP CLI config.
+- Repo code/config should not be changed to suppress that warning.
+
 ## Rewrite Docs
 
 - Architecture: `ARCHITECTURE_PLAN.md`

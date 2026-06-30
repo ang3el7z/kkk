@@ -1521,7 +1521,14 @@ Commit:
 
 ## Task 34 - Local PHP SQLite Warning Audit
 
-Status: pending
+Status: done
+
+Done:
+
+- confirmed warning comes from local Scoop PHP CLI environment, not from repo config
+- `php --ini` shows loaded `C:\Users\Ang3el\scoop\persist\php\cli\php.ini` plus additional parsed `C:\Users\Ang3el\scoop\apps\php\current\cli\php.ini`
+- both external ini files currently enable `extension=pdo_sqlite` and `extension=sqlite3`, which explains duplicate load warnings
+- documented the issue and non-repo ownership in `PROJECT_MAP.md` without editing user global PHP config
 
 Цель: разобраться с local warning `Module "pdo_sqlite" is already loaded` / `Module "sqlite3" is already loaded`, не маскируя его через `.gitignore` или `tmp`.
 
