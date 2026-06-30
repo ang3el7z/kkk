@@ -21,6 +21,7 @@
 
 - Feature toggles: `src/Application/Feature/*` including `FeatureManager`, `ContainerManagerService`, and Docker/runtime abstractions
 - Cron loop/actions: `src/Application/Cron/*`
+- Telegram menu builders extracted so far: `src/Telegram/Menu/ContainerManagerMenuBuilder.php`, `ConfigMenuBuilder.php`, `AdGuardMenuBuilder.php`, `OpenConnectMenuBuilder.php`, `NaiveProxyMenuBuilder.php`, `HysteriaMenuBuilder.php`
 - PAC/templates/subscriptions: `src/Module/Pac/*`
 - Xray: `src/Module/Xray/*`
 - AdGuard: `src/Module/AdGuard/*`
@@ -67,6 +68,7 @@
 ## Rewrite Docs
 
 - Architecture: `ARCHITECTURE_PLAN.md`
+- Bot monolith audit: `BOT_MONOLITH_AUDIT.md`
 - Migration: `MIGRATION_PLAN.md`
 - Task tracker: `REWRITE_TASKS.md`
 - PR summary: `PR_SUMMARY.md`

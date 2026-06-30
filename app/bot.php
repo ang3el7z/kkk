@@ -70,8 +70,13 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayRuntime.php';
     require_once dirname(__DIR__) . '/src/Telegram/FeatureCallbackGuard.php';
     require_once dirname(__DIR__) . '/src/Telegram/Router.php';
+    require_once dirname(__DIR__) . '/src/Telegram/Menu/AdGuardMenuBuilder.php';
+    require_once dirname(__DIR__) . '/src/Telegram/Menu/ConfigMenuBuilder.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/ContainerManagerMenuBuilder.php';
+    require_once dirname(__DIR__) . '/src/Telegram/Menu/HysteriaMenuBuilder.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/MenuFilter.php';
+    require_once dirname(__DIR__) . '/src/Telegram/Menu/NaiveProxyMenuBuilder.php';
+    require_once dirname(__DIR__) . '/src/Telegram/Menu/OpenConnectMenuBuilder.php';
 }
 
 class Bot
@@ -6139,66 +6144,36 @@ DNS-over-HTTPS with IP:
 
     public function naiveMenu()
     {
-        $pac    = $this->getPacConf();
         $domain = $this->getDomain();
         $credentials = $this->buildNaiveProxyModule()->parseCredentials($this->buildNaiveProxyModule()->loadConfig());
-        $text[] = "Menu -> NaiveProxy";
         $np     = $this->getHashSubdomain('np');
-        $text[] = "<code>https://{$credentials['user']}:{$credentials['password']}@$np.$domain</code>";
-        $data[] = [
-            [
-                'text'          => $this->i18n('change subdomain'),
-                'callback_data' => "/changeNaiveSubdomain",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('change login'),
-                'callback_data' => "/changeNaiveUser",
-            ],
-            [
-                'text'          => $this->i18n('change password'),
-                'callback_data' => "/changeNaivePass",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => "/menu",
-            ],
-        ];
-        return [
-            'text' => implode("\n", $text),
-            'data' => $data,
-        ];
+
+        return $this->buildNaiveProxyMenuBuilder()->build(
+            $domain,
+            $np,
+            $credentials,
+            $this->i18n('change subdomain'),
+            $this->i18n('change login'),
+            $this->i18n('change password'),
+            $this->i18n('back'),
+        );
     }
 
     public function hysteriaMenu()
     {
         $f      = '/docker/compose';
         $c      = yaml_parse_file($f)['services'];
-        $port   = explode(':', $c['hy']['ports'][0])[0];
+        $port   = isset($c['hy']['ports'][0]) ? explode(':', $c['hy']['ports'][0])[0] : null;
         $domain = $this->getDomain();
         $pass = $this->buildHysteriaModule()->extractPassword($this->buildHysteriaModule()->loadConfig());
-        $text[] = "Menu -> Hysteria";
-        $text[] = "server: " . ($port? "<code>$domain:$port</code>" : 'port unavailable');
-        $text[] = "passwd: <code>$pass</code>";
-        $data[] = [
-            [
-                'text'          => $this->i18n('change password'),
-                'callback_data' => "/changeHysteriaPass",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => "/menu",
-            ],
-        ];
-        return [
-            'text' => implode("\n", $text),
-            'data' => $data,
-        ];
+
+        return $this->buildHysteriaMenuBuilder()->build(
+            $domain,
+            $port,
+            $pass,
+            $this->i18n('change password'),
+            $this->i18n('back'),
+        );
     }
 
     public function mirrorMenu()
@@ -6260,71 +6235,29 @@ DNS-over-HTTPS with IP:
         $dns = $state['dns'];
         $expose = $state['expose_iroutes'];
         $pass   = htmlspecialchars($pac['ocserv']);
-        $text[] = "Menu -> OpenConnect";
-        if (!empty($cs)) {
-            $oc = $this->getHashSubdomain('oc');
-            $text[] = "<code>https://$oc.$domain/?$cs</code>";
-        }
-        $text[] = "password: <span class='tg-spoiler'>$pass</span>";
-        $data[] = [
-            [
-                'text'          => $this->i18n('change subdomain'),
-                'callback_data' => "/changeOcDomain",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('change secret'),
-                'callback_data' => "/changeCamouflage",
-            ],
-            [
-                'text'          => $this->i18n('change password'),
-                'callback_data' => "/changeOcPass",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('dns') . ": $dns",
-                'callback_data' => "/changeOcDns",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          =>  $this->i18n('listSubnet'),
-                'callback_data' => "/subnet 0_0_1",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('expose-iroutes') . ' ' . $this->i18n($expose ? 'on' : 'off'),
-                'callback_data' => "/changeOcExpose",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('add peer'),
-                'callback_data' => "/addOcUser",
-            ],
-        ];
         $clients = $this->getClientsOc();
-        foreach ($clients as $k => $v) {
-            $data[] = [
-                [
-                    'text'          => $this->i18n('delete') . " $v",
-                    'callback_data' => "/deloc $k",
-                ],
-            ];
-        }
-        $data[] = [
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => "/menu",
-            ],
-        ];
-        return [
-            'text' => implode("\n", $text),
-            'data' => $data,
-        ];
+        $oc = $this->getHashSubdomain('oc');
+
+        return $this->buildOpenConnectMenuBuilder()->build(
+            $domain,
+            $oc,
+            $pass,
+            $dns,
+            $expose,
+            $clients,
+            $this->i18n('change subdomain'),
+            $this->i18n('change secret'),
+            $this->i18n('change password'),
+            $this->i18n('dns'),
+            $this->i18n('listSubnet'),
+            $this->i18n('expose-iroutes'),
+            $this->i18n('on'),
+            $this->i18n('off'),
+            $this->i18n('add peer'),
+            $this->i18n('delete'),
+            $this->i18n('back'),
+            !empty($cs) ? $cs : null,
+        );
     }
 
     public function changeOcExpose()
@@ -8613,93 +8546,37 @@ DNS-over-HTTPS with IP:
         $domain = $this->getDomain();
         $hash   = $this->getHashBot();
         $scheme = empty($ssl = $this->nginxGetTypeCert()) ? 'http' : 'https';
-        $text   = "$scheme://$domain/adguard$hash\nLogin: admin\nPass: <span class='tg-spoiler'>{$conf['adpswd']}</span>\n\n";
-        if ($ssl) {
-            $text .= "DNS over HTTPS:\n<code>$ip</code>\n<code>$scheme://$domain/dns-query$hash" . (!empty($conf['adguardkey']) ? "/{$conf['adguardkey']}" : '') . "</code>\n\n";
-            $text .= "DNS over TLS:\n<code>tls://" . (!empty($conf['adguardkey'] )? "{$conf['adguardkey']}." : '') . "$domain</code>";
-        }
         $status = $this->i18n(exec("JSON=1 timeout 2 dnslookup google.com ad") ? 'on' : 'off');
         $adguardConfig = $this->buildAdGuardModule()->loadConfig();
         $safesearch = $adguardConfig['filtering']['safe_search']['enabled'];
-        $text .= "\n\nstatus: $status\t\tsafesearch: " . $this->i18n($safesearch ? 'on' : 'off');
         $allowedClients = $adguardConfig['dns']['allowed_clients'];
-        $text .= $allowedClients ? "\n\nallowed clients: \n - " . implode("\n - ", $allowedClients) : '';
+        $upstreams = $adguardConfig['dns']['upstream_dns'] ?? [];
 
-        $data = [
-            [
-                [
-                    'text'          => 'web panel',
-                    'web_app' => [
-                        "url" => "https://$domain/adguard$hash"
-                    ],
-                ],
-                [
-                    'text'          => $this->i18n('third party browser') . ': ' . $this->i18n(!empty($conf['adgbrowser']) ? 'on' : 'off'),
-                    'callback_data' => '/adguardChBr'
-                ],
-            ],
-            [
-                [
-                    'text'          => $this->i18n('change password'),
-                    'callback_data' => "/adguardpsswd",
-                ],
-                [
-                    'text'          => 'ClientID' . ($conf['adguardkey'] ? ": {$conf['adguardkey']}" : ''),
-                    'callback_data' => "/setAdguardKey",
-                ],
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('fill allowed clients'),
-                'callback_data' => "/adgFillAllowedClients 0",
-            ],
-            [
-                'text'          => $this->i18n('delete allowed clients'),
-                'callback_data' => "/adgFillAllowedClients 1",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('check DNS'),
-                'callback_data' => "/checkdns",
-            ],
-            [
-                'text'          => $this->i18n('reset settings'),
-                'callback_data' => "/adguardreset",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('add upstream'),
-                'callback_data' => "/addupstream",
-            ],
-        ];
-        $upstreams = $adguardConfig['dns']['upstream_dns'];
-        if (!empty($upstreams)) {
-            foreach ($upstreams as $k => $v) {
-                $data[] = [
-                    [
-                        'text'          => $v,
-                        'callback_data' => "/menu adguard",
-                    ],
-                    [
-                        'text'          => $this->i18n('delete'),
-                        'callback_data' => "/delupstream $k",
-                    ],
-                ];
-            }
-        }
-        $data[] = [
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => "/menu",
-            ],
-        ];
-        return [
-            'text' => $text,
-            'data' => $data,
-        ];
+        return $this->buildAdGuardMenuBuilder()->build(
+            $scheme,
+            $domain,
+            $ip,
+            $hash,
+            (string) ($conf['adpswd'] ?? ''),
+            !empty($conf['adguardkey']) ? (string) $conf['adguardkey'] : null,
+            !empty($conf['adgbrowser']),
+            $status,
+            $this->i18n($safesearch ? 'on' : 'off'),
+            is_array($allowedClients) ? array_values($allowedClients) : [],
+            is_array($upstreams) ? array_values($upstreams) : [],
+            $this->i18n('third party browser'),
+            $this->i18n('on'),
+            $this->i18n('off'),
+            $this->i18n('change password'),
+            $this->i18n('fill allowed clients'),
+            $this->i18n('delete allowed clients'),
+            $this->i18n('check DNS'),
+            $this->i18n('reset settings'),
+            $this->i18n('add upstream'),
+            $this->i18n('delete'),
+            $this->i18n('back'),
+            !empty($ssl),
+        );
     }
 
     public function adgFillAllowedClients($delete = false)
@@ -8841,6 +8718,7 @@ DNS-over-HTTPS with IP:
         $conf = $this->getPacConf();
         $oc   = $this->getHashSubdomain('oc');
         $np   = $this->getHashSubdomain('np');
+        $text = [];
         if (!empty($conf['domain'])) {
             $ssl_expiry = $this->expireCert();
             $certs      = $this->domainsCert() ?: [];
@@ -8857,151 +8735,48 @@ DNS-over-HTTPS with IP:
         } else {
             $text[] = $this->i18n('domain explain');
         }
-
-        $data = [
-            [
-                [
-                    'text'          => $conf['domain'] ? "{$this->i18n('delete')} {$conf['domain']}" : $this->i18n('install domain'),
-                    'callback_data' => $conf['domain'] ? '/deldomain' : '/domain',
-                ],
-                [
-                    'text'          => $this->i18n('nip.io'),
-                    'callback_data' => '/addNipdomain',
-                ],
-            ],
-        ];
-        if ($conf['domain']) {
-            if ($cert = $this->nginxGetTypeCert()) {
-                switch ($cert) {
-                    case 'letsencrypt':
-                        $data[] = [
-                            [
-                                'text'          => $this->i18n('renew SSL'),
-                                'callback_data' => "/setSSL letsencrypt",
-                            ],
-                            [
-                                'text'          => $this->i18n('delete SSL'),
-                                'callback_data' => "/deletessl",
-                            ],
-                        ];
-                        break;
-                    case 'self':
-                        $data[] = [
-                            [
-                                'text'          => $this->i18n('delete SSL'),
-                                'callback_data' => "/deletessl",
-                            ],
-                        ];
-                        break;
-                }
-            } else {
-                $data[] = [
-                    [
-                        'text'          => $this->i18n('Letsencrypt SSL'),
-                        'callback_data' => "/setSSL letsencrypt",
-                    ],
-                    [
-                        'text'          => $this->i18n('Self SSL'),
-                        'callback_data' => "/selfssl",
-                    ],
-                ];
-            }
-        }
-        $data[] = [
-            [
-                'text'          => $this->i18n('Ports'),
-                'callback_data' => "/ports",
-            ],
-            [
-                'text'          => $this->i18n('logs'),
-                'callback_data' => "/logs",
-            ],
-            [
-                'text'          => $this->i18n('IP ban'),
-                'callback_data' => "/ipMenu",
-            ],
-        ];
-
-        $data[] = [
-            [
-                'text'          => $this->i18n('lang'),
-                'callback_data' => "/menu lang",
-            ],
-            [
-                'text'          => "{$this->i18n('page')}: " . ($conf['limitpage'] ?: 5),
-                'callback_data' => "/enterPage",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('export'),
-                'callback_data' => "/export",
-            ],
-            [
-                'text'          => $this->i18n('import'),
-                'callback_data' => "/import",
-            ],
-        ];
         $backup = $this->buildMaintenanceModule()->describeSchedule((string) ($conf['backup'] ?? ''));
         $backupDisplay = $backup['display'];
         if ($backup['enabled'] && ! $backup['valid']) {
             $backupDisplay = $this->i18n('off') . " {$conf['backup']} - wrong format";
         }
-        $data[] = [
-            [
-                'text'          => $this->i18n('backup') . ': ' . ($backupDisplay ?: $this->i18n('off')),
-                'callback_data' => "/backup",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('autoupdate') . ': ' .  $this->i18n($conf['autoupdate'] ? 'on' : 'off'),
-                'callback_data' => "/autoupdate",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('container manager'),
-                'callback_data' => "/menu containers",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('branches'),
-                'callback_data' => "/menu update",
-            ],
-            [
-                'text'          => $this->i18n('restart'),
-                'callback_data' => "/restart",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => "{$this->i18n('add')} {$this->i18n('admin')}",
-                'callback_data' => "/addadmin",
-            ],
-        ];
         $file = __DIR__ . '/config.php';
         opcache_invalidate($file);
         require $file;
-        foreach ($c['admin'] as $k => $v) {
-            $data[] = [
-                [
-                    'text'          => $this->i18n('delete') . " $v",
-                    'callback_data' => "/deladmin $v",
-                ],
-            ];
-        }
-        $data[] = [
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => "/menu",
-            ],
-        ];
-        return [
-            'text' => implode("\n", $text),
-            'data' => $data,
-        ];
+        $cert = !empty($conf['domain']) ? $this->nginxGetTypeCert() : false;
+
+        return $this->buildConfigMenuBuilder()->build(
+            $text,
+            !empty($conf['domain']),
+            !empty($conf['domain']) ? (string) $conf['domain'] : null,
+            $this->i18n('delete'),
+            $this->i18n('install domain'),
+            $this->i18n('nip.io'),
+            $cert ?: null,
+            $this->i18n('renew SSL'),
+            $this->i18n('delete SSL'),
+            $this->i18n('Letsencrypt SSL'),
+            $this->i18n('Self SSL'),
+            $this->i18n('Ports'),
+            $this->i18n('logs'),
+            $this->i18n('IP ban'),
+            $this->i18n('lang'),
+            $this->i18n('page'),
+            (int) ($conf['limitpage'] ?: 5),
+            $this->i18n('export'),
+            $this->i18n('import'),
+            $this->i18n('backup'),
+            $backupDisplay ?: $this->i18n('off'),
+            $this->i18n('autoupdate'),
+            $this->i18n($conf['autoupdate'] ? 'on' : 'off'),
+            $this->i18n('container manager'),
+            $this->i18n('branches'),
+            $this->i18n('restart'),
+            $this->i18n('add'),
+            $this->i18n('admin'),
+            array_values($c['admin']),
+            $this->i18n('back'),
+        );
     }
 
     public function containerManagerMenu()
@@ -9185,6 +8960,41 @@ DNS-over-HTTPS with IP:
         static $builder;
 
         return $builder ??= new \VpnBot\Telegram\Menu\ContainerManagerMenuBuilder();
+    }
+
+    public function buildNaiveProxyMenuBuilder(): \VpnBot\Telegram\Menu\NaiveProxyMenuBuilder
+    {
+        static $builder;
+
+        return $builder ??= new \VpnBot\Telegram\Menu\NaiveProxyMenuBuilder();
+    }
+
+    public function buildHysteriaMenuBuilder(): \VpnBot\Telegram\Menu\HysteriaMenuBuilder
+    {
+        static $builder;
+
+        return $builder ??= new \VpnBot\Telegram\Menu\HysteriaMenuBuilder();
+    }
+
+    public function buildOpenConnectMenuBuilder(): \VpnBot\Telegram\Menu\OpenConnectMenuBuilder
+    {
+        static $builder;
+
+        return $builder ??= new \VpnBot\Telegram\Menu\OpenConnectMenuBuilder();
+    }
+
+    public function buildAdGuardMenuBuilder(): \VpnBot\Telegram\Menu\AdGuardMenuBuilder
+    {
+        static $builder;
+
+        return $builder ??= new \VpnBot\Telegram\Menu\AdGuardMenuBuilder();
+    }
+
+    public function buildConfigMenuBuilder(): \VpnBot\Telegram\Menu\ConfigMenuBuilder
+    {
+        static $builder;
+
+        return $builder ??= new \VpnBot\Telegram\Menu\ConfigMenuBuilder();
     }
 
     public function featureLabel(\VpnBot\Domain\Feature\FeatureDefinition $definition): string

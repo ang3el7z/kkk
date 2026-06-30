@@ -1318,7 +1318,13 @@ Commit:
 
 ## Task 29 - Bot Menu Extraction Pass
 
-Status: pending
+Status: done
+
+Done:
+
+- extracted `ConfigMenuBuilder`, `AdGuardMenuBuilder`, `OpenConnectMenuBuilder`, `NaiveProxyMenuBuilder`, and `HysteriaMenuBuilder` into `src/Telegram/Menu/*`
+- switched `Bot` menu methods to call builders/facades instead of assembling inline button arrays
+- updated `PROJECT_MAP.md` with extracted Telegram menu builder coverage
 
 Цель: вынести следующий крупный пласт Telegram menu building из `app/bot.php` в отдельные menu builder classes.
 
