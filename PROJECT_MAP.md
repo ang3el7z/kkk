@@ -22,6 +22,7 @@
 - Feature toggles: `src/Application/Feature/*` including `FeatureManager`, `ContainerManagerService`, and Docker/runtime abstractions
 - Cron loop/actions: `src/Application/Cron/*`
 - Telegram menu builders extracted so far: `src/Telegram/Menu/ContainerManagerMenuBuilder.php`, `ConfigMenuBuilder.php`, `AdGuardMenuBuilder.php`, `OpenConnectMenuBuilder.php`, `NaiveProxyMenuBuilder.php`, `HysteriaMenuBuilder.php`
+- Telegram action routing extracted so far: `src/Telegram/Router.php`, `MenuActionHandler.php`, `SettingsActionHandler.php` now cover menu/start navigation, feature toggle callbacks, and port-settings entry handlers before `Bot::action()` falls back to the legacy switch
 - PAC/templates/subscriptions: `src/Module/Pac/*`
 - Xray: `src/Module/Xray/*`
 - AdGuard: `src/Module/AdGuard/*`

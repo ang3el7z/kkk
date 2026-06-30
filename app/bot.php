@@ -69,7 +69,9 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayModule.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayRuntime.php';
     require_once dirname(__DIR__) . '/src/Telegram/FeatureCallbackGuard.php';
+    require_once dirname(__DIR__) . '/src/Telegram/MenuActionHandler.php';
     require_once dirname(__DIR__) . '/src/Telegram/Router.php';
+    require_once dirname(__DIR__) . '/src/Telegram/SettingsActionHandler.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/AdGuardMenuBuilder.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/ConfigMenuBuilder.php';
     require_once dirname(__DIR__) . '/src/Telegram/Menu/ContainerManagerMenuBuilder.php';
@@ -247,29 +249,11 @@ class Bot
 
         switch (true) {
             // смена айпи сервера
-            case preg_match('~^/menu$~', $this->input['message'], $m):
-            case preg_match('~^/start$~', $this->input['message'], $m):
-            case preg_match('~^/menu$~', $this->input['callback'], $m):
-            case preg_match('~^/menu (?P<type>addpeer) (?P<arg>(?:-)?\d+)$~', $this->input['callback'], $m):
-            case preg_match('~^/menu (?P<type>wg) (?P<arg>(?:-)?\d+)$~', $this->input['callback'], $m):
-            case preg_match('~^/menu (?P<type>client) (?P<arg>\d+(?:_(?:-)?\d+)?)$~', $this->input['callback'], $m):
-            case preg_match('~^/menu (?P<type>pac|adguard|config|ss|lang|oc|naive|mirror|update|hy|containers)$~', $this->input['callback'], $m):
-                $this->menu(type: $m['type'] ?? false, arg: $m['arg'] ?? false);
-                break;
-            case preg_match('~^/featureToggle (?P<feature>[a-z0-9_]+)$~', $this->input['callback'], $m):
-                $this->featureToggle($m['feature']);
-                break;
-            case preg_match('~^/featureToggleConfirm (?P<feature>[a-z0-9_]+) (?P<action>enable|disable)$~', $this->input['callback'], $m):
-                $this->featureToggleConfirm($m['feature'], $m['action']);
-                break;
             case preg_match('~^/changeWG (\d+)$~', $this->input['callback'], $m):
                 $this->changeWG($m[1]);
                 break;
             case preg_match('~^/changeTransport(?: (\w+))?$~', $this->input['callback'], $m):
                 $this->changeTransport($m[1] ?? false);
-                break;
-            case preg_match('~^/mirror$~', $this->input['message'], $m):
-                $this->menu('mirror');
                 break;
             case preg_match('~^/mainOutbound$~', $this->input['callback'], $m):
                 $this->mainOutbound();
@@ -297,9 +281,6 @@ class Bot
                 break;
             case preg_match('~^/setHwidDevices(?: (\w+))?$~', $this->input['callback'], $m):
                 $this->setHwidDevices($m[1] ?? null);
-                break;
-            case preg_match('~^/changePort(?: (\w+))?$~', $this->input['callback'], $m):
-                $this->changePort($m[1] ?? null);
                 break;
             case preg_match('~^/hwidUser (\d+)(?:_(\d+))?$~', $this->input['callback'], $m):
                 $this->hwidUser($m[1], $m[2] ?? 0);
@@ -342,9 +323,6 @@ class Bot
                 break;
             case preg_match('~^/autoupdate$~', $this->input['callback'], $m):
                 $this->autoupdate();
-                break;
-            case preg_match('~^/ports$~', $this->input['callback'], $m):
-                $this->ports();
                 break;
             case preg_match('~^/analysisIp(?:\s(\d+))?$~', $this->input['callback'], $m):
                 $this->analysisIp($m[1] ?: 0);
@@ -9565,11 +9543,12 @@ DNS-over-HTTPS with IP:
         }
 
         return match ($route['handler']) {
-            'routeMenu' => $this->routeMenu(),
-            'routeConfigMenu' => $this->routeConfigMenu(),
-            'routeContainersMenu' => $this->routeContainersMenu(),
+            'routeMenu' => $this->routeMenu(...$route['args']),
+            'routeMirrorMenu' => $this->routeMirrorMenu(),
             'routeFeatureToggle' => $this->routeFeatureToggle(...$route['args']),
+            'routeFeatureToggleConfirm' => $this->routeFeatureToggleConfirm(...$route['args']),
             'routePorts' => $this->routePorts(),
+            'routeChangePort' => $this->routeChangePort(...$route['args']),
             default => false,
         };
     }
@@ -9581,11 +9560,28 @@ DNS-over-HTTPS with IP:
         return $router ??= new \VpnBot\Telegram\Router();
     }
 
-    public function routeMenu(): bool
+    public function buildMenuActionHandler(): \VpnBot\Telegram\MenuActionHandler
     {
-        $this->menu();
+        static $handler;
 
-        return true;
+        return $handler ??= new \VpnBot\Telegram\MenuActionHandler($this);
+    }
+
+    public function buildSettingsActionHandler(): \VpnBot\Telegram\SettingsActionHandler
+    {
+        static $handler;
+
+        return $handler ??= new \VpnBot\Telegram\SettingsActionHandler($this);
+    }
+
+    public function routeMenu(?string $type = null, ?string $arg = null): bool
+    {
+        return $this->buildMenuActionHandler()->menu($type, $arg);
+    }
+
+    public function routeMirrorMenu(): bool
+    {
+        return $this->buildMenuActionHandler()->mirror();
     }
 
     public function routeConfigMenu(): bool
@@ -9604,23 +9600,22 @@ DNS-over-HTTPS with IP:
 
     public function routeFeatureToggle(string $featureId): bool
     {
-        $this->featureToggle($featureId);
-
-        return true;
+        return $this->buildSettingsActionHandler()->featureToggle($featureId);
     }
 
     public function routeFeatureToggleConfirm(string $featureId, string $action): bool
     {
-        $this->featureToggleConfirm($featureId, $action);
-
-        return true;
+        return $this->buildSettingsActionHandler()->featureToggleConfirm($featureId, $action);
     }
 
     public function routePorts(): bool
     {
-        $this->ports();
+        return $this->buildSettingsActionHandler()->ports();
+    }
 
-        return true;
+    public function routeChangePort(?string $container = null): bool
+    {
+        return $this->buildSettingsActionHandler()->changePort($container);
     }
 
     /**

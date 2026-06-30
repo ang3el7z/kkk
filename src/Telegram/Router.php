@@ -14,13 +14,18 @@ final class Router
     public function __construct()
     {
         $this->routes = [
+            ['pattern' => '~^/start$~', 'handler' => 'routeMenu', 'source' => 'message'],
             ['pattern' => '~^/menu$~', 'handler' => 'routeMenu', 'source' => 'message'],
             ['pattern' => '~^/menu$~', 'handler' => 'routeMenu', 'source' => 'callback'],
-            ['pattern' => '~^/menu config$~', 'handler' => 'routeConfigMenu', 'source' => 'callback'],
-            ['pattern' => '~^/menu containers$~', 'handler' => 'routeContainersMenu', 'source' => 'callback'],
+            ['pattern' => '~^/menu (?P<type>addpeer) (?P<arg>(?:-)?\d+)$~', 'handler' => 'routeMenu', 'source' => 'callback'],
+            ['pattern' => '~^/menu (?P<type>wg) (?P<arg>(?:-)?\d+)$~', 'handler' => 'routeMenu', 'source' => 'callback'],
+            ['pattern' => '~^/menu (?P<type>client) (?P<arg>\d+(?:_(?:-)?\d+)?)$~', 'handler' => 'routeMenu', 'source' => 'callback'],
+            ['pattern' => '~^/menu (?P<type>pac|adguard|config|ss|lang|oc|naive|mirror|update|hy|containers)$~', 'handler' => 'routeMenu', 'source' => 'callback'],
+            ['pattern' => '~^/mirror$~', 'handler' => 'routeMirrorMenu', 'source' => 'message'],
             ['pattern' => '~^/featureToggle (?P<feature>[a-z0-9_]+)$~', 'handler' => 'routeFeatureToggle', 'source' => 'callback'],
             ['pattern' => '~^/featureToggleConfirm (?P<feature>[a-z0-9_]+) (?P<action>enable|disable)$~', 'handler' => 'routeFeatureToggleConfirm', 'source' => 'callback'],
             ['pattern' => '~^/ports$~', 'handler' => 'routePorts', 'source' => 'callback'],
+            ['pattern' => '~^/changePort(?: (\w+))?$~', 'handler' => 'routeChangePort', 'source' => 'callback'],
         ];
     }
 

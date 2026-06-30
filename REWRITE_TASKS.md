@@ -1359,7 +1359,14 @@ Commit:
 
 ## Task 30 - Bot Action Handler Extraction Pass
 
-Status: pending
+Status: done
+
+Done:
+
+- expanded `src/Telegram/Router.php` to absorb the menu/start + container/settings callback slice before the legacy `Bot::action()` switch
+- added `src/Telegram/MenuActionHandler.php` and `src/Telegram/SettingsActionHandler.php` as thin controller/facade handlers
+- removed the matching regex cases for `/start`, `/menu*`, `/mirror`, `/featureToggle*`, `/ports`, and `/changePort` from the giant switch in `app/bot.php`
+- updated `PROJECT_MAP.md` with extracted Telegram action-routing coverage
 
 Цель: уменьшить giant action/switch layer: перенести выбранные callback/action handlers из `Bot` в controller/application classes.
 
