@@ -65,6 +65,7 @@
 - Generated daemon config files: `/config/xray.json`, `/config/wg0.conf`, `/config/wg1.conf`, `/config/AdGuardHome.yaml`, `/config/hysteria.yaml`, `/config/ocserv.conf`, `/config/ocserv.passwd`, `/config/ssserver.json`, `/config/sslocal.json`, `/config/mtprotosecret`, `/certs/*`
 - Audit note: the legacy JSON state paths above are no longer runtime source-of-truth; Task 24 found them only in the explicit legacy importer.
 - Backup/restore note: for migrated installs the authoritative restore artifact is `/data/vpnbot.sqlite`; bot JSON export/`app/backup.php` are compatibility snapshots, not full runtime backup replacements.
+- Install/upgrade note: fresh installs rely on `data:/data` plus runtime DB bootstrap/feature seeding, while old installs require explicit `bin/import-legacy.php` once; there is no automatic legacy import on upgrade.
 
 ## Safe Verification Commands
 

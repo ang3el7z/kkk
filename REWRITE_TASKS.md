@@ -1850,7 +1850,13 @@ Commit:
 
 ## Task 44 - Install And Upgrade Path Audit
 
-Status: pending
+Status: done
+
+Done:
+
+- audited fresh-install path and confirmed compose mounts `data:/data`, while runtime bootstrap creates `/data/vpnbot.sqlite` and seeds feature defaults on first access
+- audited old-install upgrade path and confirmed legacy state import remains explicit via `bin/import-legacy.php`, with no automatic legacy import on restart/upgrade
+- updated install/upgrade docs so fresh install, migrated upgrade, and post-import source-of-truth semantics are explicit
 
 Цель: проверить install/update path после добавления `/data`, migrations, explicit importer и feature toggles.
 

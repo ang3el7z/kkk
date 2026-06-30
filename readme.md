@@ -21,6 +21,13 @@ wget -O- https://raw.githubusercontent.com/mercurykd/vpnbot/master/scripts/init.
 
 Runtime state now lives in SQLite at `/data/vpnbot.sqlite`. Mounted files under `/config` are generated daemon config, certificates, or compatibility inputs for explicit import only.
 
+Fresh-install path summary:
+
+- `docker-compose.yml` mounts `data:/data` into `php` and `service`
+- runtime DB bootstrap creates `/data/vpnbot.sqlite` on first access
+- feature defaults are seeded from `FeatureRegistry` during bootstrap
+- fresh install does not auto-import legacy `/config/*.json` state
+
 ## Migration
 
 1. Bootstrap or update schema:
@@ -43,6 +50,24 @@ docker compose config
 
 Do not rely on `/config/pac.json`, `/config/clients.json`, `/config/clients1.json`, or `/config/xray.stats` as runtime state after migration. Those paths are importer-only compatibility inputs, not the source of truth.
 `app/config.php` remains bootstrap/admin config, while generated daemon files under `/config` stay as service outputs/inputs.
+
+Upgrade path for an old pre-SQLite install:
+
+1. Update code/compose so the `data` volume and current bootstrap code are present.
+2. Ensure the install has writable `data:/data` mounted into runtime containers.
+3. Bootstrap schema explicitly:
+
+```shell
+php bin/migrate.php --db /data/vpnbot.sqlite
+```
+
+4. Run explicit one-shot legacy import only when the old install still keeps live state in legacy files:
+
+```shell
+php bin/import-legacy.php --db /data/vpnbot.sqlite --config-dir /config --app-config app/config.php
+```
+
+5. After that import, treat SQLite as the runtime source of truth. Restarts/upgrades do not perform automatic legacy re-import.
 
 ## Backup And Restore
 
