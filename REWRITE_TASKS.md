@@ -732,6 +732,16 @@ Done:
 - `Bot` now delegates DNSTT key import, restart/startup flow, download path, and rendered menu data through the extracted module instead of mutating files inline
 - added `tests/DnsttModuleTest.php` for key persistence, restart call order, and menu-state rendering coverage
 
+## Task 15.8 - MTProto
+
+Status: done
+
+Done:
+
+- added `src/Module/Mtproto` with file-backed config store, runtime interface, and module facade for adtag normalization, restart orchestration, link generation, and menu-state rendering
+- `Bot` now delegates MTProto secret/domain/adtag persistence, restart logic, export/import state, and menu/link rendering through the extracted module instead of mutating files inline
+- added `tests/MtprotoModuleTest.php` for config persistence, adtag validation, restart command generation, and link/menu rendering coverage
+
 ## Task 16 - Cron Task Extraction
 
 Status: pending

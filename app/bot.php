@@ -39,6 +39,9 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/Dnstt/DnsttKeyStore.php';
     require_once dirname(__DIR__) . '/src/Module/Dnstt/DnsttModule.php';
     require_once dirname(__DIR__) . '/src/Module/Dnstt/DnsttRuntime.php';
+    require_once dirname(__DIR__) . '/src/Module/Mtproto/MtprotoConfigStore.php';
+    require_once dirname(__DIR__) . '/src/Module/Mtproto/MtprotoModule.php';
+    require_once dirname(__DIR__) . '/src/Module/Mtproto/MtprotoRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksConfigStore.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksModule.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksRuntime.php';
@@ -835,44 +838,43 @@ class Bot
 
     public function secretSet($secret)
     {
-        file_put_contents('/config/mtprotosecret', $secret);
+        $config = $this->buildMtprotoModule()->loadConfig();
+        $config['secret'] = $secret;
+        $this->buildMtprotoModule()->saveConfig($config);
         $this->restartTG();
         $this->mtproto();
     }
 
     public function setTelegramDomain($domain)
     {
-        file_put_contents('/config/mtprotodomain', $domain);
+        $config = $this->buildMtprotoModule()->loadConfig();
+        $config['domain'] = $domain;
+        $this->buildMtprotoModule()->saveConfig($config);
         $this->restartTG();
         $this->mtproto();
     }
 
     public function setTelegramAdtag($adtag)
     {
-        $adtag = trim($adtag);
-        if ($adtag === '0') {
-            $adtag = '';
-        } elseif (!preg_match('~^[a-f0-9]{32}$~i', $adtag)) {
+        $normalizedAdtag = $this->buildMtprotoModule()->normalizeAdtag($adtag);
+
+        if ($normalizedAdtag === null) {
             $this->update($this->input['chat'], $this->input['message_id'], 'wrong adtag');
             sleep(2);
             $this->mtproto();
             return;
         }
-        file_put_contents('/config/mtprotoadtag', strtolower($adtag));
+
+        $config = $this->buildMtprotoModule()->loadConfig();
+        $config['adtag'] = $normalizedAdtag;
+        $this->buildMtprotoModule()->saveConfig($config);
         $this->restartTG();
         $this->mtproto();
     }
 
     public function restartTG()
     {
-        $secret     = file_get_contents('/config/mtprotosecret');
-        $fakedomain = file_get_contents('/config/mtprotodomain') ?: 'yandex.ru';
-        $adtag      = trim(file_exists('/config/mtprotoadtag') ? file_get_contents('/config/mtprotoadtag') : '');
-        $this->ssh('pkill mtproto-proxy', 'tg');
-        if (preg_match('~^\w{32}$~', $secret)) {
-            $proxyTag = $adtag ? " -P " . escapeshellarg($adtag) : '';
-            $this->ssh("mtproto-proxy --domain $fakedomain -u nobody -H 443 --nat-info 10.10.0.8:{$this->ip} -S $secret --aes-pwd /proxy-secret /proxy-multi.conf -M 1$proxyTag", 'tg', false, '/logs/mtproto');
-        }
+        $this->buildMtprotoModule()->restart($this->buildMtprotoModule()->loadConfig(), (string) $this->ip);
     }
 
     public function restartXray($c, $norestart = false)
@@ -901,25 +903,27 @@ class Bot
 
     public function linkMtproto()
     {
-        $s  = file_get_contents('/config/mtprotosecret');
-        $p  = $this->getPorts()['tg']['port'];
-        $d  = trim(file_get_contents('/config/mtprotodomain') ?: 'yandex.ru');
-        $d  = exec("echo $d | tr -d '\\n' | xxd -ps -c 200");
-        $ip = $this->getDomain();
-        return "https://t.me/proxy?server=$ip&port=$p&secret=ee$s$d";
+        return $this->buildMtprotoModule()->buildLink(
+            $this->buildMtprotoModule()->loadConfig(),
+            $this->getDomain(),
+            (int) $this->getPorts()['tg']['port']
+        );
     }
 
     public function mtproto()
     {
-        $d      = file_get_contents('/config/mtprotodomain') ?: 'yandex.ru';
-        $adtag  = trim(file_exists('/config/mtprotoadtag') ? file_get_contents('/config/mtprotoadtag') : '');
-        $st     = $this->ssh('pgrep mtproto-proxy', 'tg') ? 'on' : 'off';
+        $state = $this->buildMtprotoModule()->buildMenuState(
+            $this->buildMtprotoModule()->loadConfig(),
+            $this->buildMtprotoRuntime()->isRunning(),
+            $this->getDomain(),
+            (int) $this->getPorts()['tg']['port']
+        );
         $text[] = "Menu -> MTProto\n";
-        $text[] = "status: $st\n";
-        $text[] = "fake domain: <code>$d</code>\n";
-        $text[] = "adtag: <code>" . ($adtag ?: 'off') . "</code>\n";
-        if ($st == 'on') {
-            $text[] = $this->linkMtproto();
+        $text[] = "status: {$state['status']}\n";
+        $text[] = "fake domain: <code>{$state['domain']}</code>\n";
+        $text[] = "adtag: <code>{$state['adtag']}</code>\n";
+        if ($state['link'] !== null) {
+            $text[] = $state['link'];
         }
         $data[] = [
             [
@@ -1910,9 +1914,9 @@ class Bot
                 'public'  => file_get_contents('/certs/cert_public'),
             ] : false,
             'dnstt' => $this->buildDnsttModule()->loadKeyPair(),
-            'mtproto'       => file_get_contents('/config/mtprotosecret'),
-            'mtprotodomain' => file_get_contents('/config/mtprotodomain'),
-            'mtprotoadtag'  => file_exists('/config/mtprotoadtag') ? file_get_contents('/config/mtprotoadtag') : '',
+            'mtproto'       => $this->buildMtprotoModule()->loadConfig()['secret'],
+            'mtprotodomain' => $this->buildMtprotoModule()->loadConfig()['domain'],
+            'mtprotoadtag'  => $this->buildMtprotoModule()->loadConfig()['adtag'],
             'xray'          => $this->getXray(),
             'hy'            => $this->buildHysteriaModule()->loadConfig(),
             'oc'            => file_get_contents('/config/ocserv.conf'),
@@ -2016,9 +2020,11 @@ class Bot
             if (!empty($json['mtproto'])) {
                 $out[] = 'update mtproto';
                 $this->update($this->input['chat'], $this->input['message_id'], implode("\n", $out));
-                file_put_contents('/config/mtprotosecret', $json['mtproto']);
-                file_put_contents('/config/mtprotodomain', $json['mtprotodomain'] ?: '');
-                file_put_contents('/config/mtprotoadtag', trim($json['mtprotoadtag'] ?? ''));
+                $this->buildMtprotoModule()->saveConfig([
+                    'secret' => (string) $json['mtproto'],
+                    'domain' => (string) ($json['mtprotodomain'] ?? ''),
+                    'adtag' => (string) trim($json['mtprotoadtag'] ?? ''),
+                ]);
                 $this->restartTG();
             }
             // hwid
@@ -9538,6 +9544,43 @@ DNS-over-HTTPS with IP:
         return $module ??= new \VpnBot\Module\Dnstt\DnsttModule(
             new \VpnBot\Module\Dnstt\DnsttKeyStore(),
             $this->buildDnsttRuntime()
+        );
+    }
+
+    public function buildMtprotoRuntime(): \VpnBot\Module\Mtproto\MtprotoRuntime
+    {
+        static $runtime;
+
+        return $runtime ??= new class ($this) implements \VpnBot\Module\Mtproto\MtprotoRuntime {
+            public function __construct(
+                private readonly Bot $bot,
+            ) {
+            }
+
+            public function stop(): string
+            {
+                return $this->bot->ssh('pkill mtproto-proxy', 'tg');
+            }
+
+            public function start(string $command): string
+            {
+                return $this->bot->ssh($command, 'tg', false, '/logs/mtproto');
+            }
+
+            public function isRunning(): bool
+            {
+                return (bool) $this->bot->ssh('pgrep mtproto-proxy', 'tg');
+            }
+        };
+    }
+
+    public function buildMtprotoModule(): \VpnBot\Module\Mtproto\MtprotoModule
+    {
+        static $module;
+
+        return $module ??= new \VpnBot\Module\Mtproto\MtprotoModule(
+            new \VpnBot\Module\Mtproto\MtprotoConfigStore(),
+            $this->buildMtprotoRuntime()
         );
     }
 
