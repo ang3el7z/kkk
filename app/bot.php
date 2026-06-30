@@ -12,6 +12,7 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Application/Cron/VersionCheckAction.php';
     require_once dirname(__DIR__) . '/src/Application/Cron/XrayStatsPollAction.php';
     require_once dirname(__DIR__) . '/src/Application/Cron/XrayStatsResetAction.php';
+    require_once dirname(__DIR__) . '/src/Application/Feature/ContainerManagerService.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/DockerContainerRuntime.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/FeatureManager.php';
     require_once dirname(__DIR__) . '/src/Bootstrap/DatabaseBootstrapper.php';
@@ -9005,12 +9006,12 @@ DNS-over-HTTPS with IP:
 
     public function containerManagerMenu()
     {
-        $states = $this->loadFeatureStates();
+        $service = $this->buildContainerManagerService();
 
         return $this->buildContainerManagerMenuBuilder()->build(
             $this->buildFeatureRegistry(),
-            $states,
-            $this->loadFeatureRuntimeStates(),
+            $service->featureStates(),
+            $service->runtimeStates(),
             fn (\VpnBot\Domain\Feature\FeatureDefinition $definition): string => $this->featureLabel($definition),
             $this->i18n('back'),
             'Refresh',
@@ -9020,7 +9021,7 @@ DNS-over-HTTPS with IP:
     public function featureToggle(string $featureId): void
     {
         try {
-            [$definition, $enabled] = $this->resolveFeatureToggleState($featureId);
+            [$definition, $enabled] = $this->buildContainerManagerService()->resolveToggleState($featureId);
             $this->renderContainerMenuPayload(
                 $this->buildContainerManagerMenuBuilder()->buildConfirmation(
                     $definition,
@@ -9042,7 +9043,7 @@ DNS-over-HTTPS with IP:
         $auditError = null;
 
         try {
-            [$definition, $enabled, $resolvedAction] = $this->resolveFeatureToggleState($featureId, $action);
+            [$definition, $enabled, $resolvedAction] = $this->buildContainerManagerService()->resolveToggleState($featureId, $action);
             $manager = $this->buildFeatureManager();
 
             if ($manager === null) {
@@ -9152,6 +9153,17 @@ DNS-over-HTTPS with IP:
         );
     }
 
+    public function buildContainerManagerService(): \VpnBot\Application\Feature\ContainerManagerService
+    {
+        static $service;
+
+        return $service ??= new \VpnBot\Application\Feature\ContainerManagerService(
+            $this->buildFeatureRegistry(),
+            $this->buildFeatureManager(),
+            $this->buildContainerRuntime(),
+        );
+    }
+
     public function bootstrapFeatureStorage(): void
     {
         static $bootstrapped = false;
@@ -9175,58 +9187,6 @@ DNS-over-HTTPS with IP:
         return $builder ??= new \VpnBot\Telegram\Menu\ContainerManagerMenuBuilder();
     }
 
-    /**
-     * @return array<string, bool>
-     */
-    public function loadFeatureStates(): array
-    {
-        try {
-            $manager = $this->buildFeatureManager();
-
-            if ($manager !== null) {
-                return $manager->list();
-            }
-        } catch (Throwable) {
-        }
-
-        $states = [];
-
-        foreach ($this->buildFeatureRegistry()->all() as $definition) {
-            $states[$definition->id()] = $definition->enabledByDefault();
-        }
-
-        return $states;
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    public function loadFeatureRuntimeStates(): array
-    {
-        $registry = $this->buildFeatureRegistry();
-        $states = [];
-        $services = [];
-
-        foreach ($registry->all() as $definition) {
-            $states[$definition->id()] = 'unknown';
-
-            foreach ($definition->services() as $service) {
-                $services[$service] = $service;
-            }
-        }
-
-        try {
-            $serviceStates = $this->buildContainerRuntime()->status(array_values($services));
-
-            foreach ($registry->all() as $definition) {
-                $states[$definition->id()] = $this->aggregateFeatureRuntimeState($definition, $serviceStates);
-            }
-        } catch (Throwable) {
-        }
-
-        return $states;
-    }
-
     public function featureLabel(\VpnBot\Domain\Feature\FeatureDefinition $definition): string
     {
         return match ($definition->id()) {
@@ -9242,73 +9202,6 @@ DNS-over-HTTPS with IP:
             'dnstt' => $this->i18n('DNSTT'),
             default => $definition->id(),
         };
-    }
-
-    /**
-     * @param array<string, string> $serviceStates
-     */
-    public function aggregateFeatureRuntimeState(\VpnBot\Domain\Feature\FeatureDefinition $definition, array $serviceStates): string
-    {
-        $featureStates = [];
-
-        foreach ($definition->services() as $service) {
-            $featureStates[] = $serviceStates[$service] ?? 'unknown';
-        }
-
-        if (in_array('running', $featureStates, true)) {
-            return 'running';
-        }
-
-        if (in_array('stopped', $featureStates, true)) {
-            return 'stopped';
-        }
-
-        if ($featureStates !== [] && count(array_unique($featureStates)) === 1 && $featureStates[0] === 'missing') {
-            return 'missing';
-        }
-
-        return 'unknown';
-    }
-
-    /**
-     * @return array{0: \VpnBot\Domain\Feature\FeatureDefinition, 1: bool, 2?: string}
-     */
-    public function resolveFeatureToggleState(string $featureId, ?string $requestedAction = null): array
-    {
-        $definition = $this->buildFeatureRegistry()->get($featureId);
-
-        if (! $definition->toggleable()) {
-            throw new RuntimeException('Feature is locked.');
-        }
-
-        $manager = $this->buildFeatureManager();
-
-        if ($manager === null) {
-            throw new RuntimeException('Feature manager unavailable');
-        }
-
-        $states = $manager->list();
-        $enabled = $states[$featureId] ?? null;
-
-        if (! is_bool($enabled)) {
-            throw new RuntimeException('Unknown feature.');
-        }
-
-        $expectedAction = $enabled ? 'disable' : 'enable';
-
-        if ($requestedAction === null) {
-            return [$definition, $enabled, $expectedAction];
-        }
-
-        if (! in_array($requestedAction, ['enable', 'disable'], true)) {
-            throw new RuntimeException('Unknown toggle action.');
-        }
-
-        if ($requestedAction !== $expectedAction) {
-            throw new RuntimeException('State changed. Reload container manager and try again.');
-        }
-
-        return [$definition, $enabled, $requestedAction];
     }
 
     /**

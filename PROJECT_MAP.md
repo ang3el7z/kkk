@@ -19,7 +19,7 @@
 
 ## Extracted Runtime Modules
 
-- Feature toggles: `src/Application/Feature/*`
+- Feature toggles: `src/Application/Feature/*` including `FeatureManager`, `ContainerManagerService`, and Docker/runtime abstractions
 - Cron loop/actions: `src/Application/Cron/*`
 - PAC/templates/subscriptions: `src/Module/Pac/*`
 - Xray: `src/Module/Xray/*`

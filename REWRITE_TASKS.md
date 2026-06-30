@@ -1144,7 +1144,7 @@ Done:
 
 ## Task 25 - Bot.php Slimming Phase 2
 
-Status: pending
+Status: done
 
 Цель: уменьшить `app/bot.php`, оставив его facade/compat layer, а не главным местом бизнес-логики.
 
@@ -1177,6 +1177,12 @@ Status: pending
 Commit:
 
 - `refactor: slim bot facade`
+
+Done:
+
+- measured `app/bot.php` before the task at 10,232 lines; after extracting the container-manager state/toggle slice it is 10,151 lines
+- extracted the container manager feature-state/runtime-state/toggle-resolution workflow into `src/Application/Feature/ContainerManagerService.php`
+- kept `Bot` as a facade/wrapper for the container manager callbacks and updated `PROJECT_MAP.md` to document the new extracted service
 
 ## Task 26 - Real Device Smoke Report
 
