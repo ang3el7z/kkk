@@ -9,7 +9,7 @@ final class WireGuardModule
     public function __construct(
         private readonly WireGuardConfigCodec $codec,
         private readonly WireGuardRuntime $runtime,
-        private readonly LegacyWireGuardClientStore $clientStore,
+        private readonly WireGuardClientStore $clientStore,
     ) {
     }
 

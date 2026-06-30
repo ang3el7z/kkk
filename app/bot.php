@@ -26,8 +26,9 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteSettingsRepository.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Process/CommandRunner.php';
     require_once dirname(__DIR__) . '/src/Infrastructure/Process/ProcOpenCommandRunner.php';
-    require_once dirname(__DIR__) . '/src/Infrastructure/Storage/LegacyPacSettingsRepository.php';
-    require_once dirname(__DIR__) . '/src/Module/WireGuard/LegacyWireGuardClientStore.php';
+    require_once dirname(__DIR__) . '/src/Infrastructure/Database/SqliteDocumentSettingsRepository.php';
+    require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardClientStore.php';
+    require_once dirname(__DIR__) . '/src/Module/WireGuard/SqliteWireGuardClientStore.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardConfigCodec.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardModule.php';
     require_once dirname(__DIR__) . '/src/Module/WireGuard/WireGuardRuntime.php';
@@ -88,9 +89,6 @@ class Bot
     public $pool;
     public $hwid;
     public $api;
-    public $clients;
-    public $clients1;
-    public $pac;
     public $i18n;
     public $language;
     public $selfupdate;
@@ -111,9 +109,6 @@ class Bot
         $this->key      = $key;
         $this->api      = "https://$api/bot$key/";
         $this->file     = "https://$api/file/bot$key/";
-        $this->clients  = '/config/clients.json';
-        $this->clients1 = '/config/clients1.json';
-        $this->pac      = '/config/pac.json';
         $this->ip       = getenv('IP');
         $this->i18n     = $i18n;
         $this->language = $this->getPacConf()['language'] ?: 'en';
@@ -1686,18 +1681,43 @@ class Bot
         return $this->buildWireGuardModule()->readClients();
     }
 
+    /**
+     * @return array{wg: array<int, array<string, mixed>>, wg1: array<int, array<string, mixed>>}
+     */
+    public function readAllWireGuardClients(): array
+    {
+        $current = $this->wg ?? null;
+        $this->wg = 0;
+        $wg = $this->readClients();
+        $this->wg = 1;
+        $wg1 = $this->readClients();
+
+        if ($current === null) {
+            unset($this->wg);
+        } else {
+            $this->wg = $current;
+        }
+
+        return [
+            'wg' => $wg,
+            'wg1' => $wg1,
+        ];
+    }
+
     public function export()
     {
+        $allClients = $this->readAllWireGuardClients();
         $this->wg = 0;
         $wg = [
             'server'  => $this->readConfig(),
-            'clients' => json_decode(file_get_contents($this->clients), true) ?: [],
+            'clients' => $allClients['wg'],
         ];
         $this->wg = 1;
         $wg1 = [
             'server'  => $this->readConfig(),
-            'clients' => json_decode(file_get_contents($this->clients1), true) ?: [],
+            'clients' => $allClients['wg1'],
         ];
+        unset($this->wg);
         $conf = [
             'wg'  => $wg,
             'wg1' => $wg1,
@@ -6882,8 +6902,9 @@ DNS-over-HTTPS with IP:
         $clients = array_filter($c['inbounds'][0]['settings']['clients'], fn($e) => !$type ? empty($e['off']) : !empty($e['off']));
         uasort($clients, fn($a, $b) => ($a['time'] ?: PHP_INT_MAX) <=> ($b['time'] ?: PHP_INT_MAX));
 
-        $wg  = json_decode(file_get_contents($this->clients), true) ?: [];
-        $wg1 = json_decode(file_get_contents($this->clients1), true) ?: [];
+        $wireGuardClients = $this->readAllWireGuardClients();
+        $wg = $wireGuardClients['wg'];
+        $wg1 = $wireGuardClients['wg1'];
 
         foreach ($wg as $k => $v) {
             $wg_clients[$v['interface']['PrivateKey']] = [
@@ -8170,9 +8191,10 @@ DNS-over-HTTPS with IP:
 
     public function getAwgClient($pk)
     {
-        $c   = $this->getPacConf();
-        $wg  = json_decode(file_get_contents($this->clients), true) ?: [];
-        $wg1 = json_decode(file_get_contents($this->clients1), true) ?: [];
+        $c = $this->getPacConf();
+        $wireGuardClients = $this->readAllWireGuardClients();
+        $wg = $wireGuardClients['wg'];
+        $wg1 = $wireGuardClients['wg1'];
         foreach ($wg as $k => $v) {
             if ($v['interface']['PrivateKey'] == $pk) {
                 $container = '';
@@ -9144,7 +9166,10 @@ DNS-over-HTTPS with IP:
     {
         static $repository;
 
-        return $repository ??= new \VpnBot\Infrastructure\Storage\LegacyPacSettingsRepository($this->pac);
+        return $repository ??= new \VpnBot\Infrastructure\Database\SqliteDocumentSettingsRepository(
+            $this->buildDatabaseBootstrapper()->bootstrap(),
+            'legacy.pac'
+        );
     }
 
     public function buildPacTemplateStore(): \VpnBot\Module\Pac\PacTemplateStore
@@ -9547,8 +9572,9 @@ DNS-over-HTTPS with IP:
             }
         };
 
-        $store = new \VpnBot\Module\WireGuard\LegacyWireGuardClientStore(
-            $this->getInstanceWG(1) ? $this->clients1 : $this->clients
+        $store = new \VpnBot\Module\WireGuard\SqliteWireGuardClientStore(
+            $this->buildDatabaseBootstrapper()->bootstrap(),
+            $this->getInstanceWG()
         );
 
         return $modules[$service] = new \VpnBot\Module\WireGuard\WireGuardModule(

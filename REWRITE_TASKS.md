@@ -629,7 +629,7 @@ Done:
 
 ## Task 15 - Remaining Modules
 
-Status: pending
+Status: done
 
 Цель: повторить pattern для остальных сервисов.
 
@@ -823,6 +823,13 @@ Status: pending
 Не делать:
 
 - Не удалять legacy importer.
+
+Done:
+
+- `legacy.pac` runtime settings now read/write through SQLite via `SqliteDocumentSettingsRepository`; `pac.json` is no longer the live source of truth
+- WireGuard client state moved to `wireguard_clients` / `wireguard_instances` through `SqliteWireGuardClientStore`; backup/export and AWG lookups now read DB state
+- Xray stats read/write now stay in `xray_stats`; `xray.stats` remains referenced only by the explicit legacy importer
+- Added focused SQLite-backed tests for PAC document settings, WireGuard client storage, PAC templates, subscriptions, and Xray DB state
 
 ## Task 18 - Final Cleanup And PR Prep
 

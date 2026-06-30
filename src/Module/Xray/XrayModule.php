@@ -13,7 +13,6 @@ final class XrayModule
         private readonly SqliteXrayStateRepository $repository,
         private readonly XrayRuntime $runtime,
         private readonly string $configPath = '/config/xray.json',
-        private readonly string $statsPath = '/config/xray.stats',
     ) {
     }
 
@@ -49,13 +48,7 @@ final class XrayModule
      */
     public function getStats(): array
     {
-        $stats = $this->repository->loadStats();
-
-        if ($stats !== []) {
-            return $stats;
-        }
-
-        return $this->readJsonFile($this->statsPath, []);
+        return $this->repository->loadStats();
     }
 
     /**
