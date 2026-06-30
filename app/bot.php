@@ -2038,14 +2038,24 @@ class Bot
 
     public function upload($name, $code, $chat = false)
     {
-        $path = "/logs/$name";
+        $path = tempnam(sys_get_temp_dir(), 'vpnbot-upload-');
+
+        if ($path === false) {
+            throw new RuntimeException('Failed to allocate temporary upload file.');
+        }
+
         file_put_contents($path, $code);
-        $r = $this->sendFile(
-            $chat ?: $this->input['chat'],
-            curl_file_create($path),
-        );
-        unlink($path);
-        return $r;
+
+        try {
+            return $this->sendFile(
+                $chat ?: $this->input['chat'],
+                curl_file_create($path, 'application/octet-stream', $name),
+            );
+        } finally {
+            if (file_exists($path)) {
+                unlink($path);
+            }
+        }
     }
 
     public function proxy()

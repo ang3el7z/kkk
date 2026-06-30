@@ -31,13 +31,45 @@ final class TelegramClient
             file_put_contents($this->requestsErrorLog, var_export([
                 'r' => [
                     'method' => $method,
-                    'data' => $data,
+                    'data' => $this->summarizeRequestData($data),
                 ],
                 'a' => $responseBody,
             ], true) . "\n", FILE_APPEND);
         }
 
         return $response;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function summarizeRequestData(mixed $data): array
+    {
+        if (! is_array($data)) {
+            return [
+                'type' => get_debug_type($data),
+            ];
+        }
+
+        $summary = [
+            'type' => 'array',
+            'keys' => array_keys($data),
+        ];
+
+        foreach ($data as $key => $value) {
+            if ($value instanceof \CURLFile) {
+                $summary['has_file'] = true;
+                $summary['file_fields'][] = (string) $key;
+
+                continue;
+            }
+
+            if (is_string($value) && in_array((string) $key, ['text', 'caption'], true)) {
+                $summary['text_lengths'][(string) $key] = mb_strlen($value, 'utf-8');
+            }
+        }
+
+        return $summary;
     }
 
     public function setCommands(array $commands): void

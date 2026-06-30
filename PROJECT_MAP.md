@@ -91,5 +91,6 @@
 - Architecture: `ARCHITECTURE_PLAN.md`
 - Bot monolith audit: `BOT_MONOLITH_AUDIT.md`
 - Migration: `MIGRATION_PLAN.md`
+- Security audit: `SECURITY_AUDIT.md`
 - Task tracker: `REWRITE_TASKS.md`
 - PR summary: `PR_SUMMARY.md`

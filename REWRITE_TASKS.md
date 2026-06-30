@@ -1890,7 +1890,14 @@ Commit:
 
 ## Task 45 - Security And Admin Audit
 
-Status: pending
+Status: done
+
+Done:
+
+- audited admin-only gates for Telegram command execution, container manager, feature toggles, restart, import/export, and backup flows
+- audited Docker socket/runtime wiring and confirmed current feature-toggle rewrite uses fixed compose commands and fixed Docker API endpoints rather than raw user-provided Docker arguments
+- documented current audit-log coverage and remaining gaps in `SECURITY_AUDIT.md`
+- hardened secret handling by moving temporary Telegram upload artifacts out of `/logs` and redacting raw Telegram request payloads from `/logs/requests_error`
 
 Цель: перед real install проверить основные security risks после container toggle и Docker socket integration.
 
