@@ -1605,7 +1605,14 @@ Commit:
 
 ## Task 38 - Xray Flow Extraction
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Module/Xray/XrayBotFlow.php` to own Xray dashboard/user/template/action orchestration
+- converted `Bot::xray()`, `userXr()`, `choiceTemplate()`, `templateUser()`, `addxrus()`, `switchXr()`, `renXrUs()`, and `delxr()` into thin delegates through `buildXrayBotFlow()`
+- updated fallback `require_once` loading in `app/bot.php` for the new Xray flow service
+- refreshed `BOT_MONOLITH_AUDIT.md` and `PROJECT_MAP.md` to reflect the reduced `Bot` size and the next extraction order
 
 Цель: убрать Xray UI/action orchestration из `Bot`, оставив там thin facade.
 

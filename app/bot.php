@@ -67,6 +67,7 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksModule.php';
     require_once dirname(__DIR__) . '/src/Module/Shadowsocks/ShadowsocksRuntime.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/SqliteXrayStateRepository.php';
+    require_once dirname(__DIR__) . '/src/Module/Xray/XrayBotFlow.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayConfigCodec.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayModule.php';
     require_once dirname(__DIR__) . '/src/Module/Xray/XrayRuntime.php';
@@ -6242,20 +6243,7 @@ DNS-over-HTTPS with IP:
 
     public function delxr($i)
     {
-        $r  = $this->getXray();
-        $st = $this->getXrayStats();
-        foreach ($r['inbounds'][0]['settings']['clients'] as $k => $v) {
-            if ($i == $k) {
-                $this->deleteHwidUser($r['inbounds'][0]['settings']['clients'][$k]['id']);
-                unset($r['inbounds'][0]['settings']['clients'][$k]);
-                unset($st['users'][$k]);
-                $this->setXrayStats($st);
-                $this->restartXray($r);
-                $this->adguardXrayClients();
-                break;
-            }
-        }
-        $this->xray();
+        $this->buildXrayBotFlow()->deleteUser((int) $i);
     }
 
     public function getClientsOc()
@@ -6272,36 +6260,7 @@ DNS-over-HTTPS with IP:
 
     public function addxrus($users)
     {
-        $c     = $this->getXray();
-        $p     = $this->getPacConf();
-        $users = array_map(fn ($e) => trim($e), explode(',', $users));
-        $users = array_map(fn ($e) => explode(':', $e), $users);
-        foreach ($c['inbounds'][0]['settings']['clients'] as $k => $v) {
-            $uuids[]  = $v['id'];
-            $emails[] = $v['email'];
-        }
-        foreach ($users as $user) {
-            $uuid = $user[1] ?: trim($this->ssh('xray uuid', 'xr'));
-            if (in_array($uuid, $uuids ?: []) || in_array($user[0], $emails ?: [])) {
-                $this->send($this->input['chat'], "user {$user[0]} already exists");
-                return $this->xray();
-            }
-            $c['inbounds'][0]['settings']['clients'][] = $p['transport'] != 'Reality' ? [
-                    'id'    => $uuid,
-                    'email' => $user[0],
-                ] : [
-                    'id'    => $uuid,
-                    'flow'  => 'xtls-rprx-vision',
-                    'email' => $user[0],
-            ];
-        }
-        $this->restartXray($c);
-        $this->adguardXrayClients();
-        if (count($users) == 1) {
-            $this->userXr(count($c['inbounds'][0]['settings']['clients']) - 1);
-        } else {
-            $this->xray();
-        }
+        $this->buildXrayBotFlow()->addUsers((string) $users);
     }
 
     public function setTimerXr($time, $i)
@@ -6327,30 +6286,12 @@ DNS-over-HTTPS with IP:
 
     public function switchXr($i, $nm = 0, $time = false)
     {
-        $c = $this->getXray();
-        if (empty($time)) {
-            unset($c['inbounds'][0]['settings']['clients'][$i]['time']);
-        }
-        if (empty($c['inbounds'][0]['settings']['clients'][$i]['off'])) {
-            $c['inbounds'][0]['settings']['clients'][$i]['off'] = $c['inbounds'][0]['settings']['clients'][$i]['id'];
-            $c['inbounds'][0]['settings']['clients'][$i]['id']  = trim($this->ssh('xray uuid', 'xr'));
-        } else {
-            $c['inbounds'][0]['settings']['clients'][$i]['id'] = $c['inbounds'][0]['settings']['clients'][$i]['off'];
-            unset($c['inbounds'][0]['settings']['clients'][$i]['off']);
-        }
-        $this->restartXray($c);
-        if (empty($nm)) {
-            $this->userXr($i);
-        }
+        $this->buildXrayBotFlow()->switchUser((int) $i, (int) $nm, (bool) $time);
     }
 
     public function renXrUs($name, $i)
     {
-        $c = $this->getXray();
-        $c['inbounds'][0]['settings']['clients'][$i]['email'] = $name;
-        $this->restartXray($c);
-        $this->adguardXrayClients();
-        $this->userXr($i);
+        $this->buildXrayBotFlow()->renameUser((string) $name, (int) $i);
     }
 
     public function getXrayStats()
@@ -6684,196 +6625,7 @@ DNS-over-HTTPS with IP:
 
     public function xray($page = 0)
     {
-        $c      = $this->getXray();
-        $p      = $this->getPacConf();
-        $text[] = "Menu -> " . $this->i18n('xray');
-        if (!empty($c['inbounds'][0]['streamSettings']['realitySettings']['serverNames'][0])) {
-            $text[] = "fake domain: <code>{$c['inbounds'][0]['streamSettings']['realitySettings']['serverNames'][0]}</code>";
-        }
-        $text[] = 'transport: ' . ($p['transport'] ?: 'Websocket');
-        $st = $this->getXrayStats();
-        $td = $this->getBytes($st['global']['download'] + $st['session']['download']);
-        $tu = $this->getBytes($st['global']['upload'] + $st['session']['upload']);
-        $text[] = "↓$td  ↑$tu";
-        $data[] = [
-            [
-                'text'          => $this->i18n('reset stats'),
-                'callback_data' => '/resetXrStats',
-            ],
-            [
-                'text'          => $this->i18n('reset monthly') . ": " . $this->i18n(!empty($this->getPacConf()['reset_monthly']) ? 'on' : 'off'),
-                'callback_data' => '/switchMonthlyStats',
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('main outbound name: ') . ($p['outbound'] ?? 'proxy'),
-                'callback_data' => '/mainOutbound',
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $p['linkdomain'] ?? $this->i18n('cdn'),
-                'callback_data' => '/addLinkDomain',
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('RLTY') . ' ' . ($p['transport'] == 'Reality' ? $this->i18n('on') : $this->i18n('off')),
-                'callback_data' => "/changeTransport Reality",
-            ],
-            [
-                'text'          => $this->i18n('WS') . ' ' . ($p['transport'] == 'Websocket' ? $this->i18n('on') : $this->i18n('off')),
-                'callback_data' => "/changeTransport Websocket",
-            ],
-            [
-                'text'          => $this->i18n('XHTTP') . ($p['transport'] == 'xhttp' ? $this->i18n('on') : $this->i18n('off')),
-                'callback_data' => "/changeTransport xhttp",
-            ],
-        ];
-
-        $ip_count      = $p['ip_count'] ?: 1;
-        $hwidEnabled   = !empty($p['hwid_limit_enabled']);
-        $defaultHwids  = max(1, (int) ($p['hwid_device_count'] ?: 1));
-        $data[] = [
-            [
-                'text'          => $this->i18n('ip limit') . ' ' . (!empty($p['ip_limit']) ? ": {$p['ip_limit']} sec & $ip_count" : $this->i18n('off')),
-                'callback_data' => "/setIpLimit",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('hwid limit') . ': ' . $this->i18n($hwidEnabled ? 'on' : 'off') . " ({$defaultHwids})",
-                'callback_data' => '/toggleHwidLimit xray',
-            ],
-            [
-                'text'          => $this->i18n('set hwid devices count'),
-                'callback_data' => '/setHwidDevices xray',
-            ],
-        ];
-        if ($p['transport'] == 'Reality') {
-            $data[] = [
-                [
-                    'text'          => $this->i18n('changeFakeDomain'),
-                    'callback_data' => "/changeFakeDomain",
-                ],
-                [
-                    'text'          => $this->i18n('selfFakeDomain'),
-                    'callback_data' => "/selfFakeDomain",
-                ],
-            ];
-        }
-        $data[] = [
-            [
-                'text'          => $this->i18n('v2ray templates'),
-                'callback_data' => "/templates v2ray",
-            ],
-            [
-                'text'          => $this->i18n('sing-box templates'),
-                'callback_data' => "/templates sing",
-            ],
-            [
-                'text'          => $this->i18n('mihomo templates'),
-                'callback_data' => "/templates clash",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('routes'),
-                'callback_data' => "/routes",
-            ],
-            [
-                'text'          => $this->i18n('tun lists'),
-                'callback_data' => "/tun",
-            ],
-        ];
-        $on = $off = 0;
-        foreach ($c['inbounds'][0]['settings']['clients'] as $k => $v) {
-            if (!empty($v['off'])) {
-                $off++;
-            } else {
-                $on++;
-            }
-        }
-        $type    = !empty($this->getPacConf()['xtlslist']);
-        $clients = array_filter($c['inbounds'][0]['settings']['clients'], fn($e) => !$type ? empty($e['off']) : !empty($e['off']));
-        uasort($clients, fn($a, $b) => ($a['time'] ?: PHP_INT_MAX) <=> ($b['time'] ?: PHP_INT_MAX));
-
-        $wireGuardClients = $this->readAllWireGuardClients();
-        $wg = $wireGuardClients['wg'];
-        $wg1 = $wireGuardClients['wg1'];
-
-        foreach ($wg as $k => $v) {
-            $wg_clients[$v['interface']['PrivateKey']] = [
-                'container' => '1',
-                'name'      => $v['interface']['## name'],
-            ];
-        }
-        foreach ($wg1 as $k => $v) {
-            $wg_clients[$v['interface']['PrivateKey']] = [
-                'container' => '2',
-                'name'      => $v['interface']['## name'],
-            ];
-        }
-
-        $all     = (int) ceil(count($clients) / $this->limit);
-        $page    = min($page, $all - 1);
-        $page    = $page == -2 ? $all - 1 : $page;
-        $clients = $page != -1 ? array_slice($clients, $page * $this->limit, $this->limit, true) : $clients;
-        foreach ($clients as $k => $v) {
-            $download = $this->getBytes($st['users'][$k]['global']['download'] + $st['users'][$k]['session']['download']);
-            $upload   = $this->getBytes($st['users'][$k]['global']['upload'] + $st['users'][$k]['session']['upload']);
-            $time     = !empty($v['time']) ? $this->getTime($v['time']) : '';
-            $data[]   = [
-                [
-                    'text'          => "{$v['email']}" . ($time ? ": $time" : '') . " (↓$download  ↑$upload)" . (!empty($v['awg']) ? " {$wg_clients[$v['awg']]['container']}-{$wg_clients[$v['awg']]['name']}" : ''),
-                    'callback_data' => "/userXr $k",
-                ],
-            ];
-        }
-        if ($page != -1 && $all > 1) {
-            $data[] = [
-                [
-                    'text'          => '<<',
-                    'callback_data' => "/xray " . ($page - 1 >= 0 ? $page - 1 : $all - 1),
-                ],
-                [
-                    'text'          => $page + 1,
-                    'callback_data' => "/xray $page",
-                ],
-                [
-                    'text'          => '>>',
-                    'callback_data' => "/xray " . ($page < $all - 1 ? $page + 1 : 0),
-                ],
-            ];
-        }
-        $data[] = [
-            [
-                'text'          => $this->i18n('add'),
-                'callback_data' => "/addXrUser",
-            ],
-            [
-                'text'          => $this->i18n('on') . " $on " . (!$type ? "✅" : ''),
-                'callback_data' => "/listXr 0",
-            ],
-            [
-                'text'          => $this->i18n('off') . " $off " . ($type ? "✅" : ''),
-                'callback_data' => "/listXr 1",
-            ],
-        ];
-
-        $data[] = [
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => "/menu",
-            ],
-        ];
-        $this->update(
-            $this->input['chat'],
-            $this->input['message_id'],
-            implode("\n", $text ?: ['...']),
-            $data ?: false,
-        );
+        $this->buildXrayBotFlow()->showMenu((int) $page);
     }
 
     public function routes()
@@ -7201,211 +6953,17 @@ DNS-over-HTTPS with IP:
 
     public function choiceTemplate($arg)
     {
-        $arg = explode('_', $arg);
-        $c = $this->buildSubscriptionModule()->updateClientTemplate(
-            $this->getXray(),
-            (string) $arg[0],
-            (int) $arg[1],
-            !empty($arg[2]) ? (string) $arg[2] : null
-        );
-        $this->restartXray($c, true);
-        $this->userXr($arg[1]);
+        $this->buildXrayBotFlow()->chooseTemplate((string) $arg);
     }
 
     public function templateUser($type, $i)
     {
-        $c         = $this->getXray();
-        $text[]    = "Menu -> " . $this->i18n('xray') . " -> {$c['inbounds'][0]['settings']['clients'][$i]['email']}\n";
-        $templates = $this->buildPacTemplateStore()->allTemplates($type);
-        $data[]    = [
-            [
-                'text'          => 'default',
-                'callback_data' => "/choiceTemplate {$type}_$i",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => 'origin',
-                'callback_data' => "/choiceTemplate {$type}_{$i}_" . base64_encode('origin'),
-            ],
-        ];
-        foreach ($templates as $k => $v) {
-            $data[] = [
-                [
-                    'text'          => $k,
-                    'callback_data' => "/choiceTemplate {$type}_{$i}_" . base64_encode($k),
-                ],
-            ];
-        }
-        $data[] = [
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => "/userXr $i",
-            ],
-        ];
-        $this->update(
-            $this->input['chat'],
-            $this->input['message_id'],
-            implode("\n", $text ?: ['...']),
-            $data ?: false,
-        );
+        $this->buildXrayBotFlow()->showTemplateUser((string) $type, (int) $i);
     }
 
     public function userXr($i)
     {
-        $xray   = $this->getXray();
-        $c      = $xray['inbounds'][0]['settings']['clients'][$i];
-        $pac    = $this->getPacConf();
-        $domain = $this->getDomain($pac['transport'] != 'Reality');
-        $scheme = empty($this->nginxGetTypeCert()) ? 'http' : 'https';
-        $hash   = $this->getHashBot();
-
-        $devices      = $this->getHwidDevicesByUser($c['id']);
-        $hwidEnabled  = !empty($pac['hwid_limit_enabled']) && empty($c['hwid_disabled']);
-        $defaultHwid  = max(1, (int) ($pac['hwid_device_count'] ?: 1));
-        $hwidLimit    = $c['hwid_limit'] ? (int) $c['hwid_limit'] : $defaultHwid;
-
-        $text[] = "Menu -> " . $this->i18n('xray') . " -> {$c['email']}\n";
-        if (file_exists(__DIR__ . '/subscription.php')) {
-            $text[] = "<a href='$scheme://{$domain}/pac$hash/sub?id={$c['id']}'>subscription</a>";
-        }
-        $text[] = "<pre><code>{$this->linkXray($i)}</code></pre>\n";
-
-        $text[] = "<a href='$scheme://{$domain}/pac$hash?t=s&r=v&s={$c['id']}#{$c['email']}'>import://v2rayng</a>";
-        $text[] = "<a href='$scheme://{$domain}/pac$hash?t=si&r=si&s={$c['id']}#{$c['email']}'>import://sing-box</a>";
-        $text[] = "<a href='$scheme://{$domain}/pac$hash?t=s&r=st&s={$c['id']}#{$c['email']}'>import://streisand</a>";
-        $text[] = "<a href='$scheme://{$domain}/pac$hash?t=si&r=h&s={$c['id']}#{$c['email']}'>import://hiddify</a>";
-        $text[] = "<a href='$scheme://{$domain}/pac$hash?t=si&r=k&s={$c['id']}#{$c['email']}'>import://karing</a>";
-        $text[] = "<a href='$scheme://{$domain}/pac$hash?t=cl&r=c&s={$c['id']}#{$c['email']}'>import://mihomo</a>";
-        $text[] = "<a href='$scheme://{$domain}/pac$hash?t=cl&r=rh&s={$c['id']}#{$c['email']}'>import://rabbit-hole</a>";
-
-        $si = "$scheme://{$domain}/pac$hash/" . base64_encode(serialize([
-            'h' => $hash,
-            't' => 'si',
-            's' => $c['id'],
-        ]));
-        $xr = "$scheme://{$domain}/pac$hash/" . base64_encode(serialize([
-            'h' => $hash,
-            't' => 's',
-            's' => $c['id'],
-        ]));
-        $cl = "$scheme://{$domain}/pac$hash/" . base64_encode(serialize([
-            'h' => $hash,
-            't' => 'cl',
-            's' => $c['id'],
-        ]));
-
-        $text[] = "\nxray config: <pre><code>$xr</code></pre>";
-        $text[] = "sing-box config: <pre><code>$si</code></pre>";
-        $text[] = "mihomo config: <pre><code>$cl</code></pre>";
-
-        $text[]   = "sing-box windows: <a href='$scheme://{$domain}/pac$hash?t=si&r=w&s={$c['id']}'>windows service</a>";
-        $st       = $this->getXrayStats();
-        $download = $this->getBytes($st['users'][$i]['global']['download'] + $st['users'][$i]['session']['download']);
-        $upload   = $this->getBytes($st['users'][$i]['global']['upload'] + $st['users'][$i]['session']['upload']);
-        $data[]   = [
-            [
-                'text'          => $this->i18n('reset stats') . ": ↓$download  ↑$upload",
-                'callback_data' => "/resetXrUser $i",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'    => $this->i18n('v2ray'),
-                'web_app' => ['url' => "https://{$domain}/pac$hash?t=s&s={$c['id']}"]
-            ],
-            [
-                'text'    => $this->i18n('singbox'),
-                'web_app' => ['url' => "https://{$domain}/pac$hash?t=si&s={$c['id']}"]
-            ],
-            [
-                'text'    => $this->i18n('mihomo'),
-                'web_app' => ['url' => "https://{$domain}/pac$hash?t=cl&s={$c['id']}"]
-            ],
-        ];
-        $data[] = [
-            [
-                'text'    => $this->i18n('v2ray ⬇️'),
-                'callback_data' => "/dw {$i} s",
-            ],
-            [
-                'text'    => $this->i18n('singbox ⬇️'),
-                'callback_data' => "/dw {$i} si",
-            ],
-            [
-                'text'    => $this->i18n('mihomo ⬇️'),
-                'callback_data' => "/dw {$i} cl",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $c['time'] ? "timer: " . $this->getTime($c['time']) : $this->i18n('timer'),
-                'callback_data' => "/timerXr $i",
-            ],
-            [
-                'text'          => $this->i18n($c['off'] ? 'off' : 'on'),
-                'callback_data' => "/switchXr $i",
-            ],
-        ];
-        $singtemplate  = $c['singtemplate'] ? base64_decode($c['singtemplate']) : 'default(' . ($pac['defaultsingtemplate'] && !empty($pac['singtemplates'][base64_decode($pac['defaultsingtemplate'])]) ? base64_decode($pac['defaultsingtemplate']) : 'origin') . ')';
-        $v2raytemplate = $c['v2raytemplate'] ? base64_decode($c['v2raytemplate']) : 'default(' . ($pac['defaultv2raytemplate'] && !empty($pac['v2raytemplates'][base64_decode($pac['defaultv2raytemplate'])]) ? base64_decode($pac['defaultv2raytemplate']) : 'origin') . ')';
-        $clashtemplate = $c['clashtemplate'] ? base64_decode($c['clashtemplate']) : 'default(' . ($pac['defaultclashtemplate'] && !empty($pac['clashtemplates'][base64_decode($pac['defaultclashtemplate'])]) ? base64_decode($pac['defaultclashtemplate']) : 'origin') . ')';
-        $data[]        = [
-            [
-                'text'          => $this->i18n('v2ray') . ": $v2raytemplate",
-                'callback_data' => "/templateUser v2ray $i",
-            ],
-            [
-                'text'          => $this->i18n('singbox') . ": $singtemplate",
-                'callback_data' => "/templateUser sing $i",
-            ],
-            [
-                'text'          => $this->i18n('mihomo') . ": $clashtemplate",
-                'callback_data' => "/templateUser clash $i",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('qr short'),
-                'callback_data' => "/qrXray $i",
-            ],
-            [
-                'text'          => $this->i18n('qr v2ray'),
-                'callback_data' => "/qrXray {$i}_1",
-            ],
-            [
-                'text'          => $this->i18n('qr singbox'),
-                'callback_data' => "/qrXray {$i}_2",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('hwid limit') . ': ' . ($hwidEnabled ? $hwidLimit : $this->i18n('off')) . ' (' . count($devices) . ')',
-                'callback_data' => "/hwidUser $i",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('rename'),
-                'callback_data' => "/renameXrUser $i",
-            ],
-            [
-                'text'          => $this->i18n('delete'),
-                'callback_data' => "/delxr $i",
-            ],
-        ];
-        $data[] = [
-            [
-                'text'          => $this->i18n('back'),
-                'callback_data' => "/xray",
-            ],
-        ];
-        $this->update(
-            $this->input['chat'],
-            $this->input['message_id'],
-            implode("\n", $text ?: ['...']),
-            $data ?: false,
-        );
+        $this->buildXrayBotFlow()->showUser((int) $i);
     }
 
     public function hwidUser($i, $page = 0)
@@ -9403,6 +8961,13 @@ DNS-over-HTTPS with IP:
             ),
             $runtime,
         );
+    }
+
+    public function buildXrayBotFlow(): \VpnBot\Module\Xray\XrayBotFlow
+    {
+        static $flow;
+
+        return $flow ??= new \VpnBot\Module\Xray\XrayBotFlow($this);
     }
 
     public function dispatchRouter(): bool
