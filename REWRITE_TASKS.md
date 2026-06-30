@@ -137,7 +137,7 @@ Done:
 
 - added `src/Domain/Feature/FeatureDefinition.php` and `src/Domain/Feature/FeatureRegistry.php`
 - registered core services as non-toggleable and all protocol features as enabled by default
-- added `tests/FeatureRegistryTest.php` smoke test for core toggle policy, service lookup, default enablement, and menu key lookup
+- added a focused local smoke check for core toggle policy, service lookup, default enablement, and menu key lookup
 
 Цель: описать все включаемые/отключаемые возможности в одном месте.
 
@@ -190,7 +190,7 @@ Done:
 
 - added `src/Domain/Feature/FeatureRepository.php` and `src/Infrastructure/Database/SqliteFeatureRepository.php`
 - repository seeds `features` from `FeatureRegistry` defaults when table is empty
-- added `tests/SqliteFeatureRepositoryTest.php` for migration + seed + toggle + core-disable guard
+- added a focused local check for migration + seed + toggle + core-disable guard
 
 Цель: хранить состояние feature в SQLite.
 
@@ -230,7 +230,7 @@ Done:
 
 - added `src/Infrastructure/Compose/ComposeOverrideWriter.php` to generate `docker-compose.override.yml` from feature state and managed port settings
 - disabled features are profiled out and dependent services get `depends_on: !override` rewrites so `docker compose config` still passes
-- added atomic temp-write + rename flow and `tests/ComposeOverrideWriterTest.php` dry-run coverage for profiles, ports, and dependency rewrites
+- added atomic temp-write + rename flow and focused dry-run coverage for profiles, ports, and dependency rewrites
 
 Цель: заменить ad hoc YAML-правки на генератор compose override.
 
@@ -268,7 +268,7 @@ Done:
 
 - added `src/Application/Feature/FeatureManager.php` with enable/disable/list flows, compose override regeneration, and best-effort rollback on failure
 - added `ContainerRuntime` abstraction plus `NoopContainerRuntime` for dry-run/unit-test safe runtime integration
-- added `tests/FeatureManagerTest.php` covering disable/enable `xray`, SQLite state updates, generated override changes, and recorded runtime calls
+- added focused local coverage for disable/enable `xray`, SQLite state updates, generated override changes, and recorded runtime calls
 
 Цель: единый application service для enable/disable.
 
@@ -349,7 +349,7 @@ Done:
 
 - added `src/Telegram/Menu/MenuFilter.php` to strip disabled feature buttons from inline keyboards by `callback_data`
 - wired `Bot::menu()` through the new filter with guarded SQLite/repository bootstrap and allow-all fallback when DB is missing or unavailable
-- added `tests/MenuFilterTest.php` covering `xray` and `adguard` button removal while keeping non-feature config buttons
+- added focused local coverage for `xray` and `adguard` button removal while keeping non-feature config buttons
 
 Цель: скрывать кнопки disabled features без полного переписывания меню.
 
@@ -383,7 +383,7 @@ Done:
 
 - added `src/Telegram/FeatureCallbackGuard.php` to map callback/message commands to features and block disabled ones
 - added an early guard in `Bot::action()` with legacy fallback on DB/repository errors and callback/message `Feature disabled` responses
-- added `tests/FeatureCallbackGuardTest.php` covering blocked `/xray` and allowed `/menu config` and `/restart`
+- added focused local coverage for blocked `/xray` and allowed `/menu config` and `/restart`
 
 Цель: запретить выполнение callback для disabled feature.
 
@@ -419,7 +419,7 @@ Done:
 
 - added `src/Telegram/Menu/ContainerManagerMenuBuilder.php` for the container manager screen and toggle button rows
 - added `Container manager` entry to `configMenu`, plus `/menu containers` and `/featureToggle <featureId>` handling in `Bot`
-- wired toggles through `FeatureManager` with a dry-run `NoopContainerRuntime` and added `tests/ContainerManagerMenuBuilderTest.php`
+- wired toggles through `FeatureManager` with a dry-run `NoopContainerRuntime` and added focused local menu coverage
 
 Цель: добавить UI управления контейнерами.
 
@@ -538,7 +538,7 @@ Done:
 
 - added `src/Telegram/Router.php` with initial routes for `/menu`, `/menu config`, `/menu containers`, `/featureToggle <id>`, and `/ports`
 - `Bot::action()` now asks the new router first and falls back to the legacy switch when no route matches
-- added `tests/RouterTest.php` for dry-run route matching and feature-toggle argument capture
+- added focused local dry-run coverage for route matching and feature-toggle argument capture
 
 Цель: начать вынос `Bot::action()` без большого риска.
 
@@ -574,7 +574,7 @@ Done:
 
 - added `src/Module/WireGuard` with `WireGuardConfigCodec`, `WireGuardModule`, `LegacyWireGuardClientStore`, and `WireGuardRuntime`
 - moved WireGuard pure parse/render/name-resolution logic and legacy client file access behind the new module facade
-- `Bot` now delegates `readConfig`, `readStatus`, `getName`, `saveClient`, `saveClients`, and `restartWG` through the module; added `tests/WireGuardConfigCodecTest.php`
+- `Bot` now delegates `readConfig`, `readStatus`, `getName`, `saveClient`, `saveClients`, and `restartWG` through the module; added focused local codec coverage
 
 Цель: первый большой модульный вынос на примере WireGuard.
 
@@ -592,7 +592,7 @@ Done:
 
 Проверка:
 
-- Unit tests parse/render WG config.
+- Temporary tmp checks parse/render WG config when useful.
 - `php -l` changed PHP.
 
 Не делать:
@@ -608,7 +608,7 @@ Done:
 - added `src/Module/Xray` with DB-backed state repository, config codec/normalizer, runtime interface, and module facade
 - `Bot` now delegates `getXray`, `restartXray`, `linkXray`, `getXrayStats`, and `setXrayStats` through the Xray module
 - Xray config render now hydrates users from SQLite and keeps `/config/xray.json` as generated runtime config while stats move behind the module
-- added `tests/XrayModuleTest.php` for DB fixture render + sample config parse coverage
+- added focused local coverage for DB fixture render + sample config parse behavior
 
 Цель: вынести Xray/VLESS state + config render.
 
@@ -630,7 +630,7 @@ Done:
 
 Проверка:
 
-- Unit tests render minimal xray config from DB fixtures.
+- Temporary tmp checks render minimal xray config from DB fixtures when useful.
 - Existing sample `/config/xray.json` can be parsed.
 
 Не делать:
@@ -668,7 +668,7 @@ Status: done
 Проверка:
 
 - `php -l` changed files.
-- Unit tests for module.
+- Temporary tmp checks for module when useful.
 - No full stack start.
 
 ## Task 15.1 - PAC/subscription
@@ -680,7 +680,7 @@ Done:
 - added `src/Module/Pac` with template store and subscription helper module for template selection, default handling, and Xray client template binding
 - moved PAC template CRUD/default flows in `Bot` to the new module while keeping HTTP/Telegram glue in place
 - `sub()`/`subscription()` now reuse extracted client lookup and template resolution instead of duplicating PAC/Xray template logic
-- added `tests/PacTemplateStoreTest.php` and `tests/SubscriptionModuleTest.php`
+- added focused local coverage for PAC template storage and subscription flows
 
 ## Task 15.2 - AdGuard
 
@@ -690,7 +690,7 @@ Done:
 
 - added `src/Module/AdGuard` with config repository/store, runtime interface, and module facade for password/tls sync, Xray client projection, allowed clients, and upstream updates
 - `Bot` now delegates AdGuard restart/config mutations and menu data reads through the new module instead of direct YAML mutation in those paths
-- added `tests/AdGuardModuleTest.php` with in-memory config repository coverage for restart calls and config transforms
+- added focused local coverage for AdGuard restart calls and config transforms
 
 ## Task 15.3 - OpenConnect
 
@@ -700,7 +700,7 @@ Done:
 
 - added `src/Module/OpenConnect` with text config store, passwd user loader, runtime interface, and module facade for config mutation, route rewrite, and user password management
 - `Bot` now delegates OpenConnect restart/config changes, menu state parsing, and user add/delete/password flows through the new module
-- added `tests/OpenConnectModuleTest.php` for config rewrites, route rendering, and runtime call coverage
+- added focused local coverage for OpenConnect config rewrites, route rendering, and runtime calls
 
 ## Task 15.4 - NaiveProxy
 
@@ -710,7 +710,7 @@ Done:
 
 - added `src/Module/NaiveProxy` with Caddyfile store, runtime interface, and module facade for credential parsing, basic_auth rewrites, and restart orchestration
 - `Bot` now delegates NaiveProxy restart and menu credential reads through the extracted module instead of mutating `Caddyfile` inline
-- added `tests/NaiveProxyModuleTest.php` for credential rewrite, parsing, and runtime start/stop coverage
+- added focused local coverage for NaiveProxy credential rewrites, parsing, and runtime start/stop behavior
 
 ## Task 15.5 - Shadowsocks
 
@@ -720,7 +720,7 @@ Done:
 
 - added `src/Module/Shadowsocks` with dual JSON config store, runtime interface, and module facade for password sync, v2ray-plugin toggle, and connection link rendering
 - `Bot` now delegates Shadowsocks config reads, restart flows, import updates, and menu/share-link generation through the extracted module instead of mutating JSON inline
-- added `tests/ShadowsocksModuleTest.php` for config mutation, link rendering, and runtime restart order coverage
+- added focused local coverage for Shadowsocks config mutation, link rendering, and runtime restart order
 
 ## Task 15.6 - Hysteria
 
@@ -730,7 +730,7 @@ Done:
 
 - added `src/Module/Hysteria` with YAML config store, runtime interface, and module facade for password sync, persisted config reads, and restart orchestration
 - `Bot` now delegates Hysteria restart/import flows and menu password reads through the extracted module instead of mutating YAML inline
-- added `tests/HysteriaModuleTest.php` for password sync, YAML persistence, and runtime start/stop coverage
+- added focused local coverage for Hysteria password sync, YAML persistence, and runtime start/stop behavior
 
 ## Task 15.7 - DNSTT
 
@@ -740,7 +740,7 @@ Done:
 
 - added `src/Module/Dnstt` with key-pair store, runtime interface, and module facade for restart orchestration, key import/export, and menu-state rendering
 - `Bot` now delegates DNSTT key import, restart/startup flow, download path, and rendered menu data through the extracted module instead of mutating files inline
-- added `tests/DnsttModuleTest.php` for key persistence, restart call order, and menu-state rendering coverage
+- added focused local coverage for DNSTT key persistence, restart call order, and menu-state rendering
 
 ## Task 15.8 - MTProto
 
@@ -750,7 +750,7 @@ Done:
 
 - added `src/Module/Mtproto` with file-backed config store, runtime interface, and module facade for adtag normalization, restart orchestration, link generation, and menu-state rendering
 - `Bot` now delegates MTProto secret/domain/adtag persistence, restart logic, export/import state, and menu/link rendering through the extracted module instead of mutating files inline
-- added `tests/MtprotoModuleTest.php` for config persistence, adtag validation, restart command generation, and link/menu rendering coverage
+- added focused local coverage for MTProto config persistence, adtag validation, restart command generation, and link/menu rendering
 
 ## Task 15.9 - Cert/SSL
 
@@ -760,7 +760,7 @@ Done:
 
 - added `src/Module/Cert` with certificate store, runtime interface, and module facade for letsencrypt domain collection, bundle splitting, persisted pair management, nginx cert-type parsing, and certificate inspection helpers
 - `Bot` now delegates SSL import/export state, bundle persistence, letsencrypt bundle retrieval, delete flow, and nginx cert-type/expiry/domain reads through the extracted certificate module instead of mutating cert files inline
-- added `tests/CertificateModuleTest.php` for letsencrypt domain expansion, bundle parsing, persisted pair lifecycle, and cert-type parsing coverage
+- added focused local coverage for certificate domain expansion, bundle parsing, persisted pair lifecycle, and cert-type parsing
 
 ## Task 15.10 - Update/backup/logs
 
@@ -770,7 +770,7 @@ Done:
 
 - added `src/Module/Maintenance` with log store, update-state store, runtime interface, and module facade for log file operations, branch/update state reads, and backup/autoclean schedule parsing
 - `Bot` now delegates update branch state reads, reload marker persistence, log listing/clear/delete operations, and schedule formatting/normalization through the maintenance module instead of mutating update/log files inline
-- added `tests/MaintenanceModuleTest.php` for log lifecycle, schedule parsing, and reload-state persistence coverage
+- added focused local coverage for maintenance log lifecycle, schedule parsing, and reload-state persistence
 
 ## Task 16 - Cron Task Extraction
 
@@ -780,7 +780,7 @@ Done:
 
 - added `src/Application/Cron` with `CronRunner`, a `CronAction` interface, and separate periodic action classes for shutdown, version checks, backups, log cleanup, xray stats reset, cert expiry, auto-analyze, and xray stats polling
 - `app/cron.php` now launches `CronRunner`, while old `Bot::cron` and `check*` methods remain lightweight wrappers for compatibility
-- added `tests/CronRunnerTest.php` for a one-tick dry-run without an endless loop
+- added focused local one-tick dry-run coverage for cron without an endless loop
 
 Цель: убрать cron logic из `Bot`.
 
@@ -828,7 +828,7 @@ Status: done
 Проверка:
 
 - `rtk rg "getPacConf|setPacConf|clients\\.json|xray\\.stats" app src`
-- Unit tests.
+- Temporary tmp checks when useful.
 
 Не делать:
 
@@ -859,12 +859,12 @@ Status: done
   - architecture;
   - migration;
   - compatibility;
-  - test coverage.
+  - verification.
 
 Проверка:
 
 - `php -l` all changed PHP.
-- Unit tests.
+- Temporary tmp checks when useful.
 - `docker compose config`.
 - No full stack start unless user explicitly разрешит.
 
@@ -873,8 +873,8 @@ Done:
 - removed stale Bot include usage left from the feature-toggle bootstrap path
 - updated `readme.md` install/migration guidance to document SQLite runtime state, explicit legacy import, and safe verification commands
 - refreshed `PROJECT_MAP.md` to reflect extracted modules, SQLite source-of-truth tables, generated daemon config files, and current safe checks
-- added `PR_SUMMARY.md` with why / architecture / migration / compatibility / test coverage for upstream review
-- ran `php -l` on changed PHP, full `tests/*Test.php` suite, and `docker compose config`
+- added `PR_SUMMARY.md` with why / architecture / migration / compatibility / verification guidance for upstream review
+- ran `php -l` on changed PHP, focused local checks, and `docker compose config`
 
 ## Task 19 - Testing Policy
 
@@ -921,7 +921,7 @@ Done:
 
 ## Task 20 - Move Existing Tests To tmp
 
-Status: pending
+Status: done
 
 Цель: убрать permanent tests из репозитория, но сохранить текущие test scripts локально как временный harness для ручных/агентских проверок.
 
@@ -962,6 +962,12 @@ Status: pending
 Commit:
 
 - `chore: move tests to temporary checks`
+
+Done:
+
+- moved tracked `tests/*` files into local ignored `tmp/tests/*` for manual/agent-only validation
+- removed tracked repo test files and updated docs to stop referencing deleted `tests/*.php` paths
+- normalized `.gitignore` to keep `/tmp/` ignored at repo root
 
 ## Task 21 - Smoke Test Plan
 
