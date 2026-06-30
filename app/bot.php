@@ -17,6 +17,7 @@ if (!class_exists(\VpnBot\Telegram\Menu\MenuFilter::class)) {
     require_once dirname(__DIR__) . '/src/Application/Feature/DockerContainerRuntime.php';
     require_once dirname(__DIR__) . '/src/Application/Feature/FeatureManager.php';
     require_once dirname(__DIR__) . '/src/Bootstrap/DatabaseBootstrapper.php';
+    require_once dirname(__DIR__) . '/src/Bootstrap/FeatureRuntimeFactory.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureDefinition.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRegistry.php';
     require_once dirname(__DIR__) . '/src/Domain/Feature/FeatureRepository.php';
@@ -6065,32 +6066,12 @@ DNS-over-HTTPS with IP:
 
     public function buildFeatureRegistry(): \VpnBot\Domain\Feature\FeatureRegistry
     {
-        static $registry;
-
-        return $registry ??= new \VpnBot\Domain\Feature\FeatureRegistry();
+        return $this->buildFeatureRuntimeFactory()->featureRegistry();
     }
 
     public function buildFeatureRepository(): ?\VpnBot\Domain\Feature\FeatureRepository
     {
-        static $repository;
-        static $resolved = false;
-
-        if ($resolved) {
-            return $repository;
-        }
-
-        $resolved = true;
-
-        try {
-            $connection = $this->buildDatabaseBootstrapper()->bootstrap();
-
-            return $repository = new \VpnBot\Infrastructure\Database\SqliteFeatureRepository(
-                $connection,
-                $this->buildFeatureRegistry()
-            );
-        } catch (Throwable) {
-            return $repository = null;
-        }
+        return $this->buildFeatureRuntimeFactory()->featureRepository();
     }
 
     public function cleanDocker()
@@ -8787,90 +8768,27 @@ DNS-over-HTTPS with IP:
 
     public function buildFeatureManager(): ?\VpnBot\Application\Feature\FeatureManager
     {
-        static $manager;
-        static $resolved = false;
-
-        if ($resolved) {
-            return $manager;
-        }
-
-        $resolved = true;
-
-        try {
-            $repository = $this->buildFeatureRepository();
-
-            if ($repository === null) {
-                return $manager = null;
-            }
-
-            return $manager = new \VpnBot\Application\Feature\FeatureManager(
-                $repository,
-                $this->buildFeatureRegistry(),
-                new \VpnBot\Infrastructure\Compose\ComposeOverrideWriter($this->buildFeatureRegistry()),
-                $this->buildContainerRuntime(),
-                '/docker/compose',
-            );
-        } catch (Throwable) {
-            return $manager = null;
-        }
+        return $this->buildFeatureRuntimeFactory()->featureManager();
     }
 
     public function buildDatabaseBootstrapper(): \VpnBot\Bootstrap\DatabaseBootstrapper
     {
-        static $bootstrapper;
-
-        return $bootstrapper ??= new \VpnBot\Bootstrap\DatabaseBootstrapper(
-            new \VpnBot\Infrastructure\Database\ConnectionFactory(),
-            $this->buildFeatureRegistry()
-        );
+        return $this->buildFeatureRuntimeFactory()->databaseBootstrapper();
     }
 
     public function buildAuditLogWriter(): ?\VpnBot\Infrastructure\Database\SqliteAuditLogWriter
     {
-        static $writer;
-        static $resolved = false;
-
-        if ($resolved) {
-            return $writer;
-        }
-
-        $resolved = true;
-
-        try {
-            return $writer = new \VpnBot\Infrastructure\Database\SqliteAuditLogWriter(
-                $this->buildDatabaseBootstrapper()->bootstrap()
-            );
-        } catch (Throwable) {
-            return $writer = null;
-        }
+        return $this->buildFeatureRuntimeFactory()->auditLogWriter();
     }
 
     public function buildContainerRuntime(): \VpnBot\Application\Feature\ContainerRuntime
     {
-        static $runtime;
-
-        return $runtime ??= new \VpnBot\Application\Feature\DockerContainerRuntime(
-            new \VpnBot\Infrastructure\Process\ProcOpenCommandRunner(),
-            [
-                'docker',
-                'compose',
-                '-f',
-                '/docker/docker-compose.yml',
-                '-f',
-                '/docker/compose',
-            ],
-        );
+        return $this->buildFeatureRuntimeFactory()->containerRuntime();
     }
 
     public function buildContainerManagerService(): \VpnBot\Application\Feature\ContainerManagerService
     {
-        static $service;
-
-        return $service ??= new \VpnBot\Application\Feature\ContainerManagerService(
-            $this->buildFeatureRegistry(),
-            $this->buildFeatureManager(),
-            $this->buildContainerRuntime(),
-        );
+        return $this->buildFeatureRuntimeFactory()->containerManagerService();
     }
 
     public function bootstrapFeatureStorage(): void
@@ -8884,7 +8802,7 @@ DNS-over-HTTPS with IP:
         $bootstrapped = true;
 
         try {
-            $this->buildDatabaseBootstrapper()->bootstrap();
+            $this->buildFeatureRuntimeFactory()->bootstrapFeatureStorage();
         } catch (Throwable) {
         }
     }
@@ -9537,6 +9455,16 @@ DNS-over-HTTPS with IP:
         return $controller ??= new \VpnBot\Application\Pac\PacHttpController(
             $this,
             __DIR__ . '/subscription.php',
+        );
+    }
+
+    public function buildFeatureRuntimeFactory(): \VpnBot\Bootstrap\FeatureRuntimeFactory
+    {
+        static $factory;
+
+        return $factory ??= new \VpnBot\Bootstrap\FeatureRuntimeFactory(
+            '/docker/compose',
+            '/data/vpnbot.sqlite',
         );
     }
 

@@ -1441,7 +1441,14 @@ Commit:
 
 ## Task 32 - Bot Runtime Factory Cleanup
 
-Status: pending
+Status: done
+
+Done:
+
+- added `src/Bootstrap/FeatureRuntimeFactory.php` to own feature/container runtime wiring, DB bootstrapper, feature repository/manager, and audit writer construction
+- switched `app/bot.php` `buildFeature*`, `buildDatabaseBootstrapper()`, `buildAuditLogWriter()`, `buildContainerRuntime()`, `buildContainerManagerService()`, and `bootstrapFeatureStorage()` to thin delegations
+- kept runtime paths unchanged: `/docker/compose` and `/data/vpnbot.sqlite` now flow through the dedicated factory layer
+- updated `PROJECT_MAP.md` with current bootstrap/factory extraction coverage
 
 Цель: вынести build/factory/bootstrap методы из `Bot`, чтобы зависимости создавались в dedicated bootstrap/container layer, а не внутри монолита.
 
