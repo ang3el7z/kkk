@@ -1563,9 +1563,316 @@ Commit:
 
 - `docs: document local php warning`
 
-## Task 35 - Sanitized Real Smoke Report
+## Task 37 - Post-Extraction Bot Audit
+
+Status: pending
+
+Цель: после Task 29-34 заново понять фактическое состояние `app/bot.php` и не продолжать резать монолит вслепую.
+
+Сделать:
+
+- Замерить текущий размер `app/bot.php`.
+- Обновить `BOT_MONOLITH_AUDIT.md`:
+  - текущие самые большие методы/sections;
+  - что уже вынесено после Task 29-34;
+  - что осталось real business logic;
+  - что осталось facade/wrapper;
+  - что выглядит dead/duplicate.
+- Составить новый ordered extraction plan.
+- Обновить `PROJECT_MAP.md`, если изменилась карта архитектуры.
+
+Проверка:
+
+- docs-only expected
+- `rtk git status`
+- если менялся PHP: `php -l` changed PHP
+
+Не делать:
+
+- Не переписывать код в этой задаче.
+- Не запускать `make u`, `make r`, `docker compose up`.
+
+Commit:
+
+- `docs: refresh bot extraction audit`
+
+## Task 38 - Xray Flow Extraction
+
+Status: pending
+
+Цель: убрать Xray UI/action orchestration из `Bot`, оставив там thin facade.
+
+Условие старта:
+
+- Task 37 completed.
+- `BOT_MONOLITH_AUDIT.md` подтвердил актуальные Xray hotspots.
+
+Сделать:
+
+- Вынести выбранные Xray flows из `Bot`:
+  - `xray()`;
+  - `userXr()`;
+  - `addxrus()`;
+  - `switchXr()`;
+  - `renXrUs()`;
+  - `delxr()`;
+  - related small helpers only if needed.
+- Создать dedicated Xray presenter/action service under `src/Module/Xray` или `src/Telegram/*`.
+- Сохранить callback_data, menu text, link format, stats behavior.
+- Оставить wrappers in `Bot`, если они нужны для compatibility.
+- Обновить `PROJECT_MAP.md` и `BOT_MONOLITH_AUDIT.md`.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не менять Xray storage semantics.
+- Не менять user-visible behavior.
+- Не запускать full stack.
+
+Commit:
+
+- `refactor: extract xray bot flow`
+
+## Task 39 - WireGuard Flow Extraction
+
+Status: pending
+
+Цель: убрать WireGuard menu/status/action glue из `Bot`.
+
+Условие старта:
+
+- Task 37 completed.
+
+Сделать:
+
+- Вынести `statusWg()` и связанные WG menu/status/action helpers в `src/Module/WireGuard` или `src/Telegram/*`.
+- Сохранить config/link output и callback behavior.
+- `Bot` должен остаться facade/wrapper.
+- Обновить `PROJECT_MAP.md` и `BOT_MONOLITH_AUDIT.md`.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не менять WG config format.
+- Не запускать full stack.
+
+Commit:
+
+- `refactor: extract wireguard bot flow`
+
+## Task 40 - Import Flow Extraction
+
+Status: pending
+
+Цель: вынести большой import flow из `Bot`, чтобы import parsing/dispatch не жил в legacy god-object.
+
+Условие старта:
+
+- Task 37 completed.
+
+Сделать:
+
+- Вынести `importFile()` и related import dispatch в dedicated application service.
+- Разделить:
+  - file/message parsing;
+  - protocol detection;
+  - module-specific import application;
+  - Telegram response formatting.
+- Сохранить existing import behavior.
+- Обновить `PROJECT_MAP.md` и `BOT_MONOLITH_AUDIT.md`.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не менять import formats без отдельной задачи.
+- Не запускать full stack.
+
+Commit:
+
+- `refactor: extract import flow`
+
+## Task 41 - Telegram Transport Extraction
+
+Status: pending
+
+Цель: вынести Telegram API transport из `Bot`, чтобы `Bot` не был HTTP client.
+
+Сделать:
+
+- Создать `src/Telegram/TelegramClient.php` или аналогичный adapter.
+- Вынести:
+  - `send()`;
+  - `update()`;
+  - `answer()`;
+  - `delete()`;
+  - `pin()`;
+  - `unpin()`;
+  - `request()` или Telegram-specific часть request.
+- Сохранить retry/error behavior.
+- `Bot` должен делегировать transport в client.
+- Обновить `PROJECT_MAP.md`.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не менять Telegram API payload formats.
+- Не запускать real bot.
+
+Commit:
+
+- `refactor: extract telegram transport`
+
+## Task 42 - Runtime Helpers Extraction
+
+Status: pending
+
+Цель: вынести low-level runtime helpers и anonymous adapters из `Bot` в named runtime classes.
+
+Сделать:
+
+- Проанализировать `ssh()`, `dockerApi()`, runtime anonymous classes inside `build*Runtime()`.
+- Вынести безопасные runtime adapters в `src/Infrastructure/*` или module runtime classes.
+- Сохранить command strings and service names.
+- Не менять Docker/SSH behavior.
+- Обновить `PROJECT_MAP.md` и `BOT_MONOLITH_AUDIT.md`.
+
+Проверка:
+
+- `php -l` changed/all PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не менять actual shell/SSH commands без отдельной причины.
+- Не запускать full stack.
+
+Commit:
+
+- `refactor: extract runtime helpers`
+
+## Task 43 - Backup And Restore DB Audit
+
+Status: pending
+
+Цель: проверить, что после SQLite rewrite backup/restore не теряет runtime state.
+
+Сделать:
+
+- Audit backup/export paths.
+- Проверить, что `/data/vpnbot.sqlite` учитывается или документирован как обязательный restore artifact.
+- Проверить legacy import vs restore path: где нужен import, где нужен DB restore.
+- Обновить docs/readme with backup/restore guidance.
+- Если нужен code fix для backup DB, сделать минимально.
+
+Проверка:
+
+- `php -l` changed PHP, если менялся PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не запускать full stack.
+- Не коммитить real backups/secrets.
+
+Commit:
+
+- `docs: audit sqlite backup restore`
+
+## Task 44 - Install And Upgrade Path Audit
+
+Status: pending
+
+Цель: проверить install/update path после добавления `/data`, migrations, explicit importer и feature toggles.
+
+Сделать:
+
+- Audit install/update docs/scripts without running full stack.
+- Проверить fresh install path:
+  - `/data` volume;
+  - DB bootstrap;
+  - feature defaults.
+- Проверить upgrade old install path:
+  - explicit `bin/import-legacy.php`;
+  - no automatic legacy import;
+  - docs explain order.
+- Обновить `readme.md`, `PROJECT_MAP.md` или dedicated install notes.
+
+Проверка:
+
+- docs/static only expected
+- `php -l` changed PHP, если менялся PHP
+- `docker compose config`
+
+Не делать:
+
+- Не запускать `make u`, `make r`, `docker compose up`.
+- Не выполнять real VPS smoke.
+
+Commit:
+
+- `docs: audit install upgrade path`
+
+## Task 45 - Security And Admin Audit
+
+Status: pending
+
+Цель: перед real install проверить основные security risks после container toggle и Docker socket integration.
+
+Сделать:
+
+- Audit admin-only access for:
+  - container manager;
+  - feature toggles;
+  - restart/runtime actions;
+  - import/export/backup.
+- Проверить Docker socket risk и command allowlist.
+- Проверить audit log coverage for toggle actions.
+- Проверить, что secrets не попадают в logs/backups/reports.
+- Создать `SECURITY_AUDIT.md` или обновить existing docs.
+- Если найден narrow code fix, сделать отдельно внутри этой задачи только если риск очевиден и scope малый.
+
+Проверка:
+
+- `php -l` changed PHP, если менялся PHP
+- `docker compose config`
+- temporary tmp checks only if useful
+
+Не делать:
+
+- Не менять auth model широко без отдельной задачи.
+- Не запускать real bot/full stack.
+
+Commit:
+
+- `docs: audit security admin flows`
+
+## Task ? - Sanitized Real Smoke Report
 
 Status: deferred
+
+Не выполнять до явного требования пользователя.
 
 Цель: когда продукт будет достаточно готов для установки, выполнить реальный smoke и заполнить sanitized report без секретов.
 
@@ -1602,15 +1909,17 @@ Commit:
 
 - `docs: add sanitized smoke report`
 
-## Task 36 - Smoke Bug Follow-Up Tasks
+## Task ? - Smoke Bug Follow-Up Tasks
 
 Status: deferred
+
+Не выполнять до явного требования пользователя.
 
 Цель: после реального smoke не чинить всё хаотично, а превратить найденные баги в отдельные ordered tasks.
 
 Условие старта:
 
-- Task 35 completed.
+- `Task ? - Sanitized Real Smoke Report` completed after explicit user request.
 - В `SMOKE_TEST_REPORT.md` есть failures/partial results.
 
 Сделать:
