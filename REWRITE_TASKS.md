@@ -971,7 +971,7 @@ Done:
 
 ## Task 21 - Smoke Test Plan
 
-Status: pending
+Status: done
 
 Цель: заменить ощущение готовности от agent/local checks на понятный реальный smoke checklist.
 
@@ -1006,6 +1006,12 @@ Status: pending
 Commit:
 
 - `docs: add smoke test plan`
+
+Done:
+
+- added `SMOKE_TEST_PLAN.md` with VPS install, DB bootstrap, legacy import, Telegram menu, container manager, per-feature toggle, Docker state, and client-link scenarios
+- documented expected results for each scenario plus a failure report template
+- kept scope docs-only with no local stack start
 
 ## Task 22 - Container Runtime Hardening
 
